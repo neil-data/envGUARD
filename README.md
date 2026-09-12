@@ -182,26 +182,28 @@ envguard ui
 Spawns an independent, beautiful console window using **Windows Terminal (`wt.exe`)** or **Command Prompt (`cmd.exe`)**.
 
 ```text
- ╔═══════════════════════════════════════════════════════════════════════╗
- ║  ███████╗███╗   ██╗██╗   ██╗ ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗  ║
- ║  ██╔════╝████╗  ██║██║   ██║██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗ ║
- ║  █████╗  ██╔██╗ ██║██║   ██║██║  ███╗██║   ██║███████║██████╔╝██║  ██║ ║
- ║  ██╔══╝  ██║╚██╗██║╚██╗ ██╔╝██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║ ║
- ║  ███████╗██║ ╚████║ ╚████╔╝ ╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝ ║
- ║  ╚══════╝╚═╝  ╚═══╝  ╚═══╝   ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝  ║
- ║         Developer-Side Safety Gate for Secrets & Drift                ║
- ╚═══════════════════════════════════════════════════════════════════════╝
+╔═══════════════════════════════════════════════════════════════════════╗
+║ ███████╗███╗   ██╗██╗   ██╗ ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗  ║
+║ ██╔════╝████╗  ██║██║   ██║██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗ ║
+║ █████╗  ██╔██╗ ██║██║   ██║██║  ███╗██║   ██║███████║██████╔╝██║  ██║ ║
+║ ██╔══╝  ██║╚██╗██║╚██╗ ██╔╝██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║ ║
+║ ███████╗██║ ╚████║ ╚████╔╝ ╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝ ║
+║ ╚══════╝╚═╝  ╚═══╝  ╚═══╝   ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝  ║
+║                                                                       ║
+║            Developer-Side Safety Gate for Secrets & Drift             ║
+╚═══════════════════════════════════════════════════════════════════════╝
 
 Active Workspace: C:\YourProject
 
-Select an Option:
-  [1]  📊 Project Security Status
-  [2]  🔍 Scan Working Directory for Secrets
-  [3]  🛑 Check Staged Git Changes (Pre-commit gate)
-  [4]  🔄 Compare .env vs .env.example Drift
-  [5]  🪝 Install / Update Git Pre-Commit Hook
-  [6]  🧪 Run Safe Secret Leak Demo
-  [0]  🚪 Exit
+┌──────────────────── Select an Option ────────────────────┐
+│   [1]    📊 Project Security Status                      │
+│   [2]    🔍 Scan Working Directory for Secrets           │
+│   [3]    🛑 Check Staged Git Changes (Pre-commit gate)   │
+│   [4]    🔄 Compare .env vs .env.example Drift           │
+│   [5]    🪝 Install / Update Git Pre-Commit Hook         │
+│   [6]    🧪 Run Safe Secret Leak Demo                    │
+│   [0]    🚪 Exit                                         │
+└──────────────────────────────────────────────────────────┘
 
 EnvGuard> 
 ```

@@ -256,23 +256,28 @@ def print_blocked_commit(findings: List[ScanFinding]) -> None:
 
 
 def print_diff_report(diff_result: EnvDiffResult) -> None:
-    """Print environment variable drift comparison results."""
+    """Print environment variable drift comparison results inside a proper panel."""
     if not diff_result.has_drift:
-        console.print("[green]✓ .env and .env.example are synchronized.[/green]")
+        console.print(Panel("[green]✓ .env and .env.example are synchronized.[/green]", border_style="green", expand=False))
         return
 
-    console.print()
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Status", style="bold")
+    table.add_column("Variables")
+
     if diff_result.missing_from_example:
-        console.print("[bold red]Missing from .env.example:[/bold red]")
-        for key in diff_result.missing_from_example:
-            console.print(f"  [red]✗[/red] {key}")
-        console.print()
+        vars_str = "\n".join(f"[red]✗[/red] {key}" for key in diff_result.missing_from_example)
+        table.add_row("[bold red]Missing from .env.example:[/bold red]", vars_str)
 
     if diff_result.extra_in_example:
-        console.print("[bold yellow]Extra in .env.example:[/bold yellow]")
-        for key in diff_result.extra_in_example:
-            console.print(f"  [yellow]⚠[/yellow] {key}")
-        console.print()
+        if diff_result.missing_from_example:
+            table.add_section()
+        vars_str = "\n".join(f"[yellow]⚠[/yellow] {key}" for key in diff_result.extra_in_example)
+        table.add_row("[bold yellow]Extra in .env.example:[/bold yellow]", vars_str)
+
+    console.print()
+    console.print(Panel(table, title="[bold]Environment Drift Report[/bold]", border_style="yellow", expand=False))
+    console.print()
 
 
 def print_status_dashboard(
@@ -283,11 +288,28 @@ def print_status_dashboard(
     diff_error: Optional[str],
     hook_installed: bool,
 ) -> str:
-    """Render comprehensive EnvGuard security status report and return status label."""
-    console.print()
-    title_text = Text("EnvGuard Security Report", style="bold underline")
-    console.print(title_text)
-    console.print("─" * 45)
+    """Render comprehensive EnvGuard security status report inside a proper panel."""
+    high_count = sum(1 for f in findings if f.severity == "HIGH")
+    med_count = sum(1 for f in findings if f.severity == "MEDIUM")
+    low_count = sum(1 for f in findings if f.severity == "LOW")
+    has_drift = diff_result is not None and diff_result.has_drift
+
+    if env_tracked or high_count > 0:
+        overall_label = "CRITICAL"
+        overall_text = "[bold red]🔴 CRITICAL — IMMEDIATE ACTION REQUIRED[/bold red]"
+        border_style = "red"
+    elif med_count > 0 or has_drift or not hook_installed:
+        overall_label = "ATTENTION REQUIRED"
+        overall_text = "[bold yellow]🟠 ATTENTION REQUIRED[/bold yellow]"
+        border_style = "yellow"
+    elif low_count > 0:
+        overall_label = "WARNING"
+        overall_text = "[bold blue]🟡 WARNING[/bold blue]"
+        border_style = "blue"
+    else:
+        overall_label = "SECURE"
+        overall_text = "[bold green]🟢 SECURE[/bold green]"
+        border_style = "green"
 
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column("Check", style="bold")
@@ -306,10 +328,6 @@ def print_status_dashboard(
         table.add_row(".env tracked", "[green]✓ NO[/green]")
 
     # 3. Secrets detected
-    high_count = sum(1 for f in findings if f.severity == "HIGH")
-    med_count = sum(1 for f in findings if f.severity == "MEDIUM")
-    low_count = sum(1 for f in findings if f.severity == "LOW")
-
     if high_count > 0:
         table.add_row("Secrets detected", f"[bold red]🔴 {high_count} High, {med_count} Medium found[/bold red]")
     elif med_count > 0:
@@ -340,23 +358,17 @@ def print_status_dashboard(
     else:
         table.add_row("Pre-commit hook", "[yellow]⚠ Not installed (run 'envguard install-hook')[/yellow]")
 
-    console.print(table)
-    console.print("─" * 45)
+    # Section divider and Overall Status inside the box
+    table.add_section()
+    table.add_row("Overall Status", overall_text)
 
-    has_drift = diff_result is not None and diff_result.has_drift
-
-    if env_tracked or high_count > 0:
-        overall_label = "CRITICAL"
-        overall_text = "[bold red]🔴 CRITICAL — IMMEDIATE ACTION REQUIRED[/bold red]"
-    elif med_count > 0 or has_drift or not hook_installed:
-        overall_label = "ATTENTION REQUIRED"
-        overall_text = "[bold yellow]🟠 ATTENTION REQUIRED[/bold yellow]"
-    elif low_count > 0:
-        overall_label = "WARNING"
-        overall_text = "[bold blue]🟡 WARNING[/bold blue]"
-    else:
-        overall_label = "SECURE"
-        overall_text = "[bold green]🟢 SECURE[/bold green]"
-
-    console.print(f"[bold]Overall Status:[/bold] {overall_text}\n")
+    panel = Panel(
+        table,
+        title="[bold]EnvGuard Security Report[/bold]",
+        border_style=border_style,
+        expand=False,
+    )
+    console.print()
+    console.print(panel)
+    console.print()
     return overall_label

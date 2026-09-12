@@ -8,9 +8,12 @@ import sys
 import tempfile
 from typing import Optional
 
-from rich.console import Console
+from rich import box
+from rich.align import Align
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from envguard.config import load_config
 from envguard.env_diff import compare_env_files
@@ -32,17 +35,28 @@ from envguard.reporter import (
 )
 from envguard.scanner import scan_directory, scan_staged
 
-BANNER = r"""
- [bold cyan]╔═══════════════════════════════════════════════════════════════════════╗
- ║[/bold cyan]  [bold green]███████╗███╗   ██╗██╗   ██╗ ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗ [/bold green] [bold cyan]║
- ║[/bold cyan]  [bold green]██╔════╝████╗  ██║██║   ██║██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗[/bold green] [bold cyan]║
- ║[/bold cyan]  [bold green]█████╗  ██╔██╗ ██║██║   ██║██║  ███╗██║   ██║███████║██████╔╝██║  ██║[/bold green] [bold cyan]║
- ║[/bold cyan]  [bold green]██╔══╝  ██║╚██╗██║╚██╗ ██╔╝██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║[/bold green] [bold cyan]║
- ║[/bold cyan]  [bold green]███████╗██║ ╚████║ ╚████╔╝ ╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝[/bold green] [bold cyan]║
- ║[/bold cyan]  [bold green]╚══════╝╚═╝  ╚═══╝  ╚═══╝   ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ [/bold green] [bold cyan]║
- ║[/bold cyan]         [bold white]Developer-Side Safety Gate for Secrets & Drift[/bold white]               [bold cyan]║
- ╚═══════════════════════════════════════════════════════════════════════╝[/bold cyan]
-"""
+ASCII_LOGO = """\
+[bold green]███████╗███╗   ██╗██╗   ██╗ ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗ 
+██╔════╝████╗  ██║██║   ██║██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗
+█████╗  ██╔██╗ ██║██║   ██║██║  ███╗██║   ██║███████║██████╔╝██║  ██║
+██╔══╝  ██║╚██╗██║╚██╗ ██╔╝██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║
+███████╗██║ ╚████║ ╚████╔╝ ╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝
+╚══════╝╚═╝  ╚═══╝  ╚═══╝   ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝[/bold green]"""
+
+SUBTITLE = "[bold white]Developer-Side Safety Gate for Secrets & Drift[/bold white]"
+
+
+def get_banner_panel() -> Panel:
+    """Return the styled EnvGuard logo and tagline inside a clean double box."""
+    content = Group(
+        Align.center(ASCII_LOGO),
+        Text(""),
+        Align.center(SUBTITLE),
+    )
+    return Panel(content, border_style="cyan", box=box.DOUBLE, expand=False)
+
+
+BANNER = get_banner_panel()
 
 
 def clear_screen() -> None:
@@ -214,9 +228,9 @@ def run_safe_demo_action() -> None:
 
     Guaranteed never to modify user repository, staging area, or files.
     """
-    console.print("\n[bold cyan]╔═══════════════════════════════════════════════╗[/bold cyan]")
-    console.print("[bold cyan]║                 ENVGUARD DEMO                 ║[/bold cyan]")
-    console.print("[bold cyan]╚═══════════════════════════════════════════════╝[/bold cyan]\n")
+    console.print()
+    console.print(Panel(Align.center("[bold cyan]ENVGUARD DEMO[/bold cyan]"), border_style="cyan", box=box.DOUBLE, expand=False))
+    console.print()
 
     with tempfile.TemporaryDirectory() as temp_dir_str:
         temp_dir = Path(temp_dir_str)
