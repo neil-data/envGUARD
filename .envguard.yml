@@ -1,0 +1,12 @@
+version: 1
+
+scan:
+  max_file_size_mb: 5
+
+exclude:
+  - tests/**
+
+git:
+  block_on:
+    - HIGH
+    - MEDIUM

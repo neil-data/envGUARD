@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "envguard"
+version = "0.2.0"
+description = "A lightweight developer-side safety gate for secrets and environment drift."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "EnvGuard Team" }
+]
+dependencies = [
+    "click>=8.0.0",
+    "rich>=12.0.0",
+    "pathspec>=0.11.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.scripts]
+envguard = "envguard.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["envguard*"]
+
+[tool.setuptools.package-data]
+"envguard" = ["data/*.json"]
