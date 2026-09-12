@@ -57,6 +57,13 @@ class ScanFinding:
         return self.severity
 
     @property
+    def fingerprint_hash(self) -> str:
+        """Return the raw 64-character SHA-256 hexadecimal digest."""
+        if self.fingerprint.startswith("sha256:"):
+            return self.fingerprint[7:]
+        return self.fingerprint
+
+    @property
     def pattern_name(self) -> str:
         """Backwards compatibility alias for rule_name."""
         return self.rule_name

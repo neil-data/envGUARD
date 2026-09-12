@@ -1,15 +1,15 @@
 """EnvGuard doctor diagnostics checks.
 
- Checks:
- - Python version
- - EnvGuard version
- - Git command availability
- - Git repository detection
+Checks:
+- Python version
+- EnvGuard version
+- Git command availability
+- Git repository detection
 - Repository configuration (.envguard.yml)
- - Rule definitions loading
- - Ignore configuration (.envguardignore & .gitignore)
- - Pre-commit hook installation
- - Baseline file (validity if present)
+- Rule definitions loading
+- Ignore configuration (.envguardignore & .gitignore)
+- Pre-commit hook installation
+- Baseline file (validity if present)
 """
 
 from dataclasses import dataclass, field
@@ -21,6 +21,7 @@ from typing import Dict, List, Optional
 from envguard import __version__
 from envguard.baseline import load_baseline
 from envguard.config import load_config
+from envguard.git_handler import get_repo_root, is_git_repo
 from envguard.hook import is_hook_installed
 from envguard.patterns import load_default_patterns
 
@@ -72,10 +73,11 @@ def run_diagnostics(repo_path: Path) -> DiagnosticReport:
     else:
         report.checks.append(DiagnosticCheck("Git Command", "ERROR", "Git executable not found in PATH", "Install Git and ensure it is added to PATH."))
 
-    # 4. Git Repository
-    git_dir = repo_path / ".git"
-    if git_dir.exists():
-        report.checks.append(DiagnosticCheck("Git Repository", "PASS", f"Initialized at {repo_path}"))
+    # 4. Git Repository (centralized detection via git_handler)
+    is_git = is_git_repo(repo_path)
+    root = get_repo_root(repo_path) or repo_path
+    if is_git:
+        report.checks.append(DiagnosticCheck("Git Repository", "PASS", f"Initialized at {root}"))
     else:
         report.checks.append(DiagnosticCheck("Git Repository", "WARNING", "Not a Git repository", "Run 'git init' to enable Git-specific protection."))
 
@@ -84,9 +86,9 @@ def run_diagnostics(repo_path: Path) -> DiagnosticReport:
     if config_file.is_file():
         try:
             cfg = load_config(repo_path)
-            report.checks.append(DiagnosticCheck("Repository Config", "PASS", f".envguard.yml present and valid"))
+            report.checks.append(DiagnosticCheck("Repository Config", "PASS", ".envguard.yml present and valid"))
         except Exception as e:
-            report.checks.append(DiagnosticCheck("Repository Config", "ERROR", f".envguard.yml parse error: {e}", "Fix SYNTX errors in .envguard.yml."))
+            report.checks.append(DiagnosticCheck("Repository Config", "ERROR", f".envguard.yml parse error: {e}", "Fix SYNTAX errors in .envguard.yml."))
     else:
         report.checks.append(DiagnosticCheck("Repository Config", "WARNING", "No .envguard.yml (using defaults)", "Run 'envguard init' to generate a configuration file."))
 
@@ -111,8 +113,8 @@ def run_diagnostics(repo_path: Path) -> DiagnosticReport:
         report.checks.append(DiagnosticCheck("Ignore Setup", "WARNING", "No .gitignore or .envguardignore found", "Create .envguardignore with 'envguard init'."))
 
     # 8. Pre-commit hook
-    if git_dir.exists():
-        if is_hook_installed(repo_path):
+    if is_git:
+        if is_hook_installed(root):
             report.checks.append(DiagnosticCheck("Pre-Commit Hook", "PASS", "EnvGuard pre-commit hook active"))
         else:
             report.checks.append(DiagnosticCheck("Pre-Commit Hook", "WARNING", "Hook not installed", "Run 'envguard install-hook' to prevent accidental commits."))

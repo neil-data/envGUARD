@@ -49,82 +49,214 @@ def load_config(root_dir: Optional[Path] = None, config_path: Optional[Path] = N
         # Return default zero-configuration
         return EnvGuardConfig()
 
+    config_filename = file_to_load.name
+
     try:
         content = file_to_load.read_text(encoding="utf-8")
-        raw_data = yaml.safe_load(content) or {}
+        raw_data = yaml.safe_load(content)
+        if raw_data is None:
+            raw_data = {}
     except yaml.YAMLError as e:
-        raise ConfigurationError(f"Invalid YAML in configuration file '{file_to_load.name}': {e}")
+        raise ConfigurationError(
+            f"Invalid YAML in configuration file '{config_filename}': {e}",
+            config_path=config_filename,
+        )
     except Exception as e:
-        raise ConfigurationError(f"Failed to read configuration file '{file_to_load.name}': {e}")
+        raise ConfigurationError(
+            f"Failed to read configuration file '{config_filename}': {e}",
+            config_path=config_filename,
+        )
 
     if not isinstance(raw_data, dict):
-        raise ConfigurationError(f"Configuration file '{file_to_load.name}' must contain a YAML mapping.")
+        raise ConfigurationError(
+            f"Configuration file '{config_filename}' must contain a YAML mapping.",
+            config_path=config_filename,
+            expected="mapping / dictionary",
+            received=type(raw_data).__name__,
+        )
 
     # 1. Version validation
-    version = raw_data.get("version", 1)
+    version = raw_data.get("version")
+    if version is None:
+        version = 1
     if not isinstance(version, int) or version not in SUPPORTED_VERSIONS:
         supported_str = ", ".join(str(v) for v in sorted(SUPPORTED_VERSIONS))
         raise ConfigurationError(
-            f"Unsupported configuration version: {version} in '{file_to_load.name}' (supported: {supported_str})"
+            f"Unsupported configuration version: {version} in '{config_filename}' (supported: {supported_str})",
+            field="version",
+            expected=supported_str,
+            received=str(version),
+            config_path=config_filename,
         )
 
     # 2. Scan options
-    scan_section = raw_data.get("scan", {})
-    max_mb = scan_section.get("max_file_size_mb", DEFAULT_MAX_FILE_SIZE_MB)
+    scan_section = raw_data.get("scan")
+    if scan_section is None:
+        scan_section = {}
+    elif not isinstance(scan_section, dict):
+        raise ConfigurationError(
+            "'scan' must be a dictionary",
+            field="scan",
+            expected="dictionary",
+            received=type(scan_section).__name__,
+            config_path=config_filename,
+        )
+
+    max_mb = scan_section.get("max_file_size_mb")
+    if max_mb is None:
+        max_mb = DEFAULT_MAX_FILE_SIZE_MB
     try:
         max_mb = float(max_mb)
         if max_mb <= 0:
             raise ValueError
     except (ValueError, TypeError):
-        raise ConfigurationError("scan.max_file_size_mb must be a positive number")
+        raise ConfigurationError(
+            "scan.max_file_size_mb must be a positive number",
+            field="scan.max_file_size_mb",
+            expected="positive number",
+            received=str(max_mb),
+            config_path=config_filename,
+        )
 
     # 3. Excludes
-    exclude_list = raw_data.get("exclude", [])
-    if not isinstance(exclude_list, list):
-        raise ConfigurationError("'exclude' must be a list of glob patterns")
-    exclude = [str(x) for x in exclude_list]
+    exclude_val = raw_data.get("exclude")
+    if exclude_val is None:
+        exclude_val = []
+    if not isinstance(exclude_val, list):
+        raise ConfigurationError(
+            "'exclude' must be a list of glob patterns",
+            field="exclude",
+            expected="list",
+            received=type(exclude_val).__name__,
+            config_path=config_filename,
+        )
+    exclude = [str(x) for x in exclude_val]
 
     # 4. Rules & Severity Overrides
-    rules_section = raw_data.get("rules", {})
-    if not isinstance(rules_section, dict):
-        raise ConfigurationError("'rules' must be a dictionary")
+    rules_section = raw_data.get("rules")
+    if rules_section is None:
+        rules_section = {}
+    elif not isinstance(rules_section, dict):
+        raise ConfigurationError(
+            "'rules' must be a dictionary",
+            field="rules",
+            expected="dictionary",
+            received=type(rules_section).__name__,
+            config_path=config_filename,
+        )
 
-    disabled_list = rules_section.get("disable", [])
-    if not isinstance(disabled_list, list):
-        raise ConfigurationError("'rules.disable' must be a list of rule IDs")
-    disabled_rules = {str(r) for r in disabled_list}
+    # Support both 'disabled' (canonical) and 'disable' (backward compatibility)
+    disabled_val = rules_section.get("disabled")
+    if disabled_val is None:
+        disabled_val = rules_section.get("disable")
+    if disabled_val is None:
+        disabled_val = []
+    if not isinstance(disabled_val, list):
+        raise ConfigurationError(
+            "rules.disabled must be a list of rule IDs",
+            field="rules.disabled",
+            expected="list",
+            received=type(disabled_val).__name__,
+            config_path=config_filename,
+            example="rules:\n  disabled:\n    - generic-credential",
+        )
+    disabled_rules = {str(r) for r in disabled_val}
 
-    raw_overrides = rules_section.get("severity_overrides", {})
+    raw_overrides = rules_section.get("severity_overrides")
+    if raw_overrides is None:
+        raw_overrides = {}
     if not isinstance(raw_overrides, dict):
-        raise ConfigurationError("'rules.severity_overrides' must be a dictionary")
+        raise ConfigurationError(
+            "rules.severity_overrides must be a dictionary",
+            field="rules.severity_overrides",
+            expected="dictionary",
+            received=type(raw_overrides).__name__,
+            config_path=config_filename,
+            example="rules:\n  severity_overrides:\n    generic-secret: LOW",
+        )
 
     severity_overrides: Dict[str, str] = {}
     for rule_id, sev_val in raw_overrides.items():
+        if not isinstance(sev_val, (str, int)):
+            raise ConfigurationError(
+                f"Invalid severity override '{sev_val}' for rule '{rule_id}'. Allowed: {', '.join(sorted(VALID_SEVERITIES))}",
+                field=f"rules.severity_overrides.{rule_id}",
+                expected=f"one of {', '.join(sorted(VALID_SEVERITIES))}",
+                received=type(sev_val).__name__,
+                config_path=config_filename,
+            )
         sev_upper = str(sev_val).upper()
         if sev_upper not in VALID_SEVERITIES:
             raise ConfigurationError(
-                f"Invalid severity override '{sev_val}' for rule '{rule_id}'. Allowed: {', '.join(sorted(VALID_SEVERITIES))}"
+                f"Invalid severity override '{sev_val}' for rule '{rule_id}'. Allowed: {', '.join(sorted(VALID_SEVERITIES))}",
+                field=f"rules.severity_overrides.{rule_id}",
+                expected=f"one of {', '.join(sorted(VALID_SEVERITIES))}",
+                received=sev_upper,
+                config_path=config_filename,
             )
         severity_overrides[str(rule_id)] = sev_upper
 
     # 5. Placeholders
-    placeholder_list = raw_data.get("placeholders", [])
-    if not isinstance(placeholder_list, list):
-        raise ConfigurationError("'placeholders' must be a list of strings")
-    placeholders = {str(p).strip().lower() for p in placeholder_list if str(p).strip()}
+    placeholder_val = raw_data.get("placeholders")
+    if placeholder_val is None:
+        placeholder_val = []
+    if not isinstance(placeholder_val, list):
+        raise ConfigurationError(
+            "'placeholders' must be a list of strings",
+            field="placeholders",
+            expected="list",
+            received=type(placeholder_val).__name__,
+            config_path=config_filename,
+        )
+    placeholders = {str(p).strip().lower() for p in placeholder_val if str(p).strip()}
 
     # Merge custom placeholders into global utils whitelist
     if placeholders:
         add_custom_placeholders(placeholders)
 
-    # 6. Git block_on
-    git_section = raw_data.get("git", {})
-    block_on_list = git_section.get("block_on", DEFAULT_BLOCK_ON)
-    if not isinstance(block_on_list, list):
-        raise ConfigurationError("'git.block_on' must be a list of severities")
-    block_on = [str(b).upper() for b in block_on_list]
+    # 6. Block on (check scan.block_on or git.block_on)
+    git_section = raw_data.get("git")
+    if git_section is None:
+        git_section = {}
+    elif not isinstance(git_section, dict):
+        raise ConfigurationError(
+            "'git' must be a dictionary",
+            field="git",
+            expected="dictionary",
+            received=type(git_section).__name__,
+            config_path=config_filename,
+        )
 
-    # 7. Check for unknown rule IDs to produce warnings
+    block_on_val = scan_section.get("block_on")
+    if block_on_val is None:
+        block_on_val = git_section.get("block_on")
+    if block_on_val is None:
+        block_on_val = DEFAULT_BLOCK_ON
+
+    if not isinstance(block_on_val, list):
+        raise ConfigurationError(
+            "'block_on' must be a list of severities",
+            field="block_on",
+            expected="list",
+            received=type(block_on_val).__name__,
+            config_path=config_filename,
+        )
+    block_on = [str(b).upper() for b in block_on_val]
+
+    # 7. Reporting section
+    reporting_section = raw_data.get("reporting")
+    if reporting_section is None:
+        reporting_section = {}
+    elif not isinstance(reporting_section, dict):
+        raise ConfigurationError(
+            "'reporting' must be a dictionary",
+            field="reporting",
+            expected="dictionary",
+            received=type(reporting_section).__name__,
+            config_path=config_filename,
+        )
+
+    # 8. Check for unknown rule IDs to produce warnings
     warnings: List[str] = []
     # Known rule IDs
     from envguard.patterns import load_default_patterns
@@ -132,7 +264,7 @@ def load_config(root_dir: Optional[Path] = None, config_path: Optional[Path] = N
 
     for d_rule in disabled_rules:
         if d_rule not in known_rules:
-            warnings.append(f"Unknown rule ID '{d_rule}' in rules.disable")
+            warnings.append(f"Unknown rule ID '{d_rule}' in rules.disabled")
     for o_rule in severity_overrides:
         if o_rule not in known_rules:
             warnings.append(f"Unknown rule ID '{o_rule}' in rules.severity_overrides")

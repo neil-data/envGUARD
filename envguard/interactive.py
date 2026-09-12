@@ -330,10 +330,18 @@ def run_doctor_action(cwd: Path) -> None:
 def run_rules_action() -> None:
     """List detection rules."""
     console.print("\n[bold cyan]▶ Catalog of EnvGuard Detection Rules...[/bold cyan]\n")
-    config = load_config()
+    disabled_rules = set()
+    severity_overrides = {}
+    try:
+        config = load_config()
+        disabled_rules = config.disabled_rules
+        severity_overrides = config.severity_overrides
+    except Exception:
+        pass
+
     patterns = load_default_patterns(
-        disabled_rules=config.disabled_rules,
-        severity_overrides=config.severity_overrides,
+        disabled_rules=disabled_rules,
+        severity_overrides=severity_overrides,
     )
     print_rules_list(patterns)
 

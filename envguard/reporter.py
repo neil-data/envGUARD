@@ -85,14 +85,16 @@ def render_scan_json(
         },
         "findings": [
             {
-                "rule_id": f.rule_id,
-                "rule_name": f.rule_name,
-                "severity": f.severity,
-                "file": f.file_path.replace("\\", "/"),
-                "line": f.line_number,
-                "masked_value": f.masked_value,
-                "fingerprint": f.fingerprint,
-                "detection_signals": getattr(f, "detection_signals", []),
+                **{
+                    "rule_id": f.rule_id,
+                    "rule_name": f.rule_name,
+                    "severity": f.severity,
+                    "file": f.file_path.replace("\\", "/"),
+                    "line": f.line_number,
+                    "masked_value": f.masked_value,
+                    "fingerprint": f.fingerprint,
+                },
+                **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
             }
             for f in findings
         ],
@@ -130,14 +132,16 @@ def render_check_json(
         },
         "findings": [
             {
-                "rule_id": f.rule_id,
-                "rule_name": f.rule_name,
-                "severity": f.severity,
-                "file": f.file_path.replace("\\", "/"),
-                "line": f.line_number,
-                "masked_value": f.masked_value,
-                "fingerprint": f.fingerprint,
-                "detection_signals": getattr(f, "detection_signals", []),
+                **{
+                    "rule_id": f.rule_id,
+                    "rule_name": f.rule_name,
+                    "severity": f.severity,
+                    "file": f.file_path.replace("\\", "/"),
+                    "line": f.line_number,
+                    "masked_value": f.masked_value,
+                    "fingerprint": f.fingerprint,
+                },
+                **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
             }
             for f in all_findings
         ],

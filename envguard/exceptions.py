@@ -1,4 +1,4 @@
-"""Custom exception hierarchy for EnvGuard."""
+from typing import Optional
 
 
 class EnvGuardError(Exception):
@@ -8,7 +8,23 @@ class EnvGuardError(Exception):
 
 class ConfigurationError(EnvGuardError):
     """Raised when configuration file parsing or validation fails."""
-    pass
+
+    def __init__(
+        self,
+        message: str,
+        field: Optional[str] = None,
+        expected: Optional[str] = None,
+        received: Optional[str] = None,
+        config_path: Optional[str] = None,
+        example: Optional[str] = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.field = field
+        self.expected = expected
+        self.received = received
+        self.config_path = config_path
+        self.example = example
 
 
 class GitError(EnvGuardError):

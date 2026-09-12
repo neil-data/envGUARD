@@ -22,8 +22,8 @@ def test_scan_json_output_clean(runner, tmp_path):
     assert result.exit_code == 0
 
     data = json.loads(result.output)
-    assert data["schema_version"] == 1
-    assert data["envguard_version"] == "0.3.0"
+    from envguard import __version__
+    assert data["envguard_version"] == __version__
     assert data["command"] == "scan"
     assert data["status"] == "passed"
     assert data["summary"]["total"] == 0

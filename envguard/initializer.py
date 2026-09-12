@@ -1,11 +1,12 @@
-"""Project initializer for EnvGuard v0.3.0.
+"""Project initializer for EnvGuard v0.3.1.
 
 Creates starter .envguard.yml and .envguardignore without overwriting.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-version = "0.3.0"
+
+version = "0.3.1"
 
 default_envguard_yml = """# EnvGuard Configuration
 version: 1
@@ -13,21 +14,16 @@ version: 1
 scan:
   max_file_size_mb: 5.0
   block_on:
-    - 'HIGH'
-    - 'MEDIUM'
+    - HIGH
+    - MEDIUM
   respect_gitignore: true
 
-exclude:
-  - '.tests/test_data/**'
-  - '*.sample'
-  - '*.fixture'
+exclude: []
 
-# Rule customization
 rules:
-  disabled:
-    # - 'generic-credential'
-  severity_overrides:
-    # 'generic-secret': 'LOW'
+  disabled: []
+  severity_overrides: {}
+
 reporting:
   color: true
   show_fingerprints: false
@@ -37,15 +33,15 @@ default_envguardignore = """# .envguardignore
 # Files and paths excluded from EnvGuard secret scanning
 
 # Test data and fixtures
-+tests/test_data/
-bspec/fixtures/
+tests/test_data/
+spec/fixtures/
 
 # Documentation examples
 mocks/
 examples/
 
 # Temporary files
-&logs/
+logs/
 *.log
 """
 

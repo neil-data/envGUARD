@@ -1,10 +1,12 @@
-"""Click CLI entry points for EnvGuard v0.2.5."""
+"""Click CLI entry points for EnvGuard v0.3.1."""
 
 from pathlib import Path
 import sys
 import traceback
 from typing import Optional
 import click
+from rich.panel import Panel
+from rich import box
 
 if sys.platform == "win32":
     try:
@@ -25,7 +27,7 @@ from envguard.baseline import (
     filter_baseline_findings,
     load_baseline,
 )
-from envguard.config import load_config
+from envguard.config import find_config_file, load_config
 from envguard.env_diff import compare_env_files
 from envguard.exceptions import (
     BaselineError,
@@ -71,17 +73,75 @@ from envguard.scanner import scan_directory, scan_staged
 from envguard.theme import create_error_panel, create_success_panel
 
 
-def handle_cli_error(e: Exception, verbose: bool = False) -> None:
-    """Format user-facing error message with friendly Rich panel unless verbose is requested."""
+def handle_cli_error(e: Exception, verbose: bool = False, debug: bool = False) -> None:
+    """Format user-facing error message with friendly Rich panel without raw traceback."""
+    if not debug:
+        try:
+            ctx = click.get_current_context(silent=True)
+            if ctx and ctx.obj:
+                debug = ctx.obj.get("DEBUG", False)
+        except Exception:
+            pass
+
+    if isinstance(e, ConfigurationError):
+        title = "ENVGUARD CONFIGURATION ERROR"
+        reason = getattr(e, "message", str(e))
+        config_path = getattr(e, "config_path", None) or ".envguard.yml"
+        field = getattr(e, "field", None)
+        expected = getattr(e, "expected", None)
+        received = getattr(e, "received", None)
+        example = getattr(e, "example", None)
+
+        if verbose:
+            parts = [f"[bold]Reason:[/bold]\n{reason}"]
+            if config_path:
+                parts.append(f"[bold]Configuration file:[/bold]\n{config_path}")
+            if field:
+                parts.append(f"[bold]Field:[/bold]\n{field}")
+            if expected:
+                parts.append(f"[bold]Expected:[/bold]\n{expected}")
+            if received:
+                parts.append(f"[bold]Received:[/bold]\n{received}")
+            if example:
+                parts.append(f"[bold]Expected format:[/bold]\n{example}")
+            suggestion = "Check your configuration file schema and syntax."
+            parts.append(f"[bold]Suggestion:[/bold]\n{suggestion}")
+
+            console.print()
+            console.print(
+                Panel(
+                    "\n\n".join(parts),
+                    title=f"[bold red]{title}[/bold red]",
+                    border_style="red",
+                    box=box.ROUNDED,
+                    expand=False,
+                    padding=(0, 1),
+                )
+            )
+            console.print()
+            if debug:
+                traceback.print_exc()
+            return
+        else:
+            suggestion = f"Configuration file:\n{config_path}"
+            if example:
+                suggestion += f"\n\nExpected format:\n{example}"
+            else:
+                suggestion += "\n\nCheck your .envguard.yml file for syntax and valid schema options."
+
+            console.print()
+            console.print(create_error_panel(title=title, reason=reason, suggestion=suggestion, verbose_hint=True))
+            console.print()
+            if debug:
+                traceback.print_exc()
+            return
+
     title = getattr(e, "title", "EnvGuard Error")
     reason = getattr(e, "reason", None) or str(e)
     suggestion = getattr(e, "suggestion", None)
 
     if not suggestion:
-        if isinstance(e, ConfigurationError) or "configuration" in str(e).lower() or "yaml" in str(e).lower():
-            title = "Configuration Error"
-            suggestion = "Check your .envguard.yml file for syntax and valid schema options."
-        elif isinstance(e, GitError) or "git" in str(e).lower():
+        if isinstance(e, GitError) or "git" in str(e).lower():
             title = "Git Repository Error"
             suggestion = "Ensure you are inside a valid Git repository with commits or staged files."
         elif isinstance(e, BaselineError) or "baseline" in str(e).lower():
@@ -97,18 +157,20 @@ def handle_cli_error(e: Exception, verbose: bool = False) -> None:
     console.print(create_error_panel(title=title, reason=reason, suggestion=suggestion, verbose_hint=not verbose))
     console.print()
 
-    if verbose:
+    if debug or (verbose and not isinstance(e, EnvGuardError)):
         traceback.print_exc()
 
 
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="EnvGuard", message="EnvGuard version %(version)s")
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
+@click.option("--debug", is_flag=True, help="Enable full traceback debugging.")
 @click.pass_context
-def main(ctx: click.Context, verbose: bool) -> None:
+def main(ctx: click.Context, verbose: bool, debug: bool = False) -> None:
     """EnvGuard - A Developer-Side Safety Gate for Secrets and Environment Drift."""
     ctx.ensure_object(dict)
     ctx.obj["VERBOSE"] = verbose
+    ctx.obj["DEBUG"] = debug
 
     if ctx.invoked_subcommand is None:
         from envguard.interactive import launch_interactive_menu
@@ -283,7 +345,8 @@ def check_cmd(ctx: click.Context, output_format: str, baseline_path: Optional[Pa
 
     try:
         repo_root = get_repo_root(cwd) or cwd
-        config = load_config(root_dir=repo_root)
+        config_file = find_config_file(cwd) or find_config_file(repo_root)
+        config = load_config(root_dir=cwd, config_path=config_file)
 
         if is_verbose and config.warnings:
             for w in config.warnings:
@@ -431,7 +494,8 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
     repo_root = get_repo_root(cwd) or cwd
 
     try:
-        config = load_config(root_dir=repo_root)
+        config_file = find_config_file(cwd) or find_config_file(repo_root)
+        config = load_config(root_dir=cwd, config_path=config_file)
 
         # 1. Check .env tracked
         env_tracked = is_git and is_env_tracked(repo_root)
@@ -480,8 +544,7 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
             except Exception:
                 baseline_status = "[yellow]INVALID[/yellow]"
 
-        config_file = repo_root / ".envguard.yml"
-        config_status = "[green]VALID (.envguard.yml)[/green]" if config_file.is_file() else "[dim]DEFAULT[/dim]"
+        config_status = f"[green]VALID ({config_file.name})[/green]" if config_file and config_file.is_file() else "[dim]DEFAULT[/dim]"
 
         if output_format.lower() == "json":
             # Compute status
@@ -777,10 +840,19 @@ def rules_list_cmd(ctx: click.Context, output_format: Optional[str], verbose: bo
     target_format = (output_format or ctx.obj.get("FORMAT", "text")).lower()
 
     try:
-        config = load_config()
+        disabled_rules = set()
+        severity_overrides = {}
+        try:
+            config = load_config()
+            disabled_rules = config.disabled_rules
+            severity_overrides = config.severity_overrides
+        except Exception:
+            # Broken or missing repository configuration should not prevent listing built-in rules
+            pass
+
         patterns = load_default_patterns(
-            disabled_rules=config.disabled_rules,
-            severity_overrides=config.severity_overrides,
+            disabled_rules=disabled_rules,
+            severity_overrides=severity_overrides,
         )
         if target_format == "json":
             render_rules_json(patterns)
