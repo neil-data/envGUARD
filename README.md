@@ -104,7 +104,7 @@ envguard check --format json
 │                                                          │
 │                 ENVGUARD BLOCKED COMMIT                  │
 │                                                          │
-│ Blocking security findings were detected in staged changes│
+│ Blocking security findings were detected in staged units │
 │                                                          │
 │            HIGH: 1          MEDIUM: 1                    │
 │                                                          │
