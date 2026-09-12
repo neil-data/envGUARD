@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from envguard.config import load_config
 from envguard.env_diff import compare_env_files
 from envguard.git_handler import (
     get_repo_root,
