@@ -1,9 +1,9 @@
-"""Click CLI entry points for EnvGuard v0.2.0."""
+"""Click CLI entry points for EnvGuard v0.2.5."""
 
 from pathlib import Path
 import sys
-from typing import Optional
 import traceback
+from typing import Optional
 import click
 
 if sys.platform == "win32":
@@ -27,7 +27,15 @@ from envguard.baseline import (
 )
 from envguard.config import load_config
 from envguard.env_diff import compare_env_files
-from envguard.exceptions import EnvGuardError
+from envguard.exceptions import (
+    BaselineError,
+    ConfigurationError,
+    EnvDiffError,
+    EnvGuardError,
+    GitError,
+    HookError,
+    ScanError,
+)
 from envguard.git_handler import (
     get_repo_root,
     get_staged_files,
@@ -39,7 +47,9 @@ from envguard.patterns import load_default_patterns
 from envguard.reporter import (
     console,
     print_blocked_commit,
+    print_check_passed,
     print_diff_report,
+    print_hook_installed,
     print_scan_findings,
     print_status_dashboard,
     render_check_json,
@@ -48,20 +58,41 @@ from envguard.reporter import (
     render_status_json,
 )
 from envguard.scanner import scan_directory, scan_staged
+from envguard.theme import create_error_panel, create_success_panel
 
 
 def handle_cli_error(e: Exception, verbose: bool = False) -> None:
-    """Format user-facing error message without stack trace unless verbose is requested."""
+    """Format user-facing error message with friendly Rich panel unless verbose is requested."""
+    title = getattr(e, "title", "EnvGuard Error")
+    reason = getattr(e, "reason", None) or str(e)
+    suggestion = getattr(e, "suggestion", None)
+
+    if not suggestion:
+        if isinstance(e, ConfigurationError) or "configuration" in str(e).lower() or "yaml" in str(e).lower():
+            title = "Configuration Error"
+            suggestion = "Check your .envguard.yml file for syntax and valid schema options."
+        elif isinstance(e, GitError) or "git" in str(e).lower():
+            title = "Git Repository Error"
+            suggestion = "Ensure you are inside a valid Git repository with commits or staged files."
+        elif isinstance(e, BaselineError) or "baseline" in str(e).lower():
+            title = "Baseline Error"
+            suggestion = "Verify your .envguard-baseline.json file exists and contains valid JSON."
+        elif isinstance(e, FileNotFoundError):
+            title = "File Not Found"
+            suggestion = "Check that the specified target path exists and is accessible."
+        else:
+            suggestion = "Run the command with --verbose for additional diagnostic details."
+
+    console.print()
+    console.print(create_error_panel(title=title, reason=reason, suggestion=suggestion, verbose_hint=not verbose))
+    console.print()
+
     if verbose:
-        console.print(f"[bold red]Error ({type(e).__name__}):[/bold red] {e}", style="red")
         traceback.print_exc()
-    else:
-        console.print(f"[bold red]Error:[/bold red] {e}", style="red")
-        console.print("[dim]Use --verbose for additional diagnostic details.[/dim]")
 
 
 @click.group(invoke_without_command=True)
-@click.version_option(version=__version__, prog_name="envguard")
+@click.version_option(version=__version__, prog_name="EnvGuard", message="EnvGuard version %(version)s")
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
 @click.pass_context
 def main(ctx: click.Context, verbose: bool) -> None:
@@ -133,6 +164,7 @@ def scan_cmd(ctx: click.Context, path: Path, output_format: str, baseline_path: 
         )
 
         verbose_log = [] if is_verbose else None
+        stats = {"files_scanned": 0, "files_skipped": 0}
 
         if target.is_file():
             from envguard.scanner import scan_file_streaming
@@ -142,17 +174,34 @@ def scan_cmd(ctx: click.Context, path: Path, output_format: str, baseline_path: 
                 patterns=patterns,
                 max_file_size_bytes=config.max_file_size_bytes,
             )
-            if skip_reason and is_verbose:
-                console.print(f"[dim]Skipped file ({skip_reason}): {target.name}[/dim]")
+            if skip_reason:
+                stats["files_skipped"] = 1
+                if is_verbose:
+                    console.print(f"[dim]Skipped file ({skip_reason}): {target.name}[/dim]")
+            else:
+                stats["files_scanned"] = 1
         else:
-            findings = scan_directory(
-                directory=target,
-                patterns=patterns,
-                respect_gitignore=True,
-                exclude_patterns=config.exclude,
-                max_file_size_bytes=config.max_file_size_bytes,
-                verbose_log=verbose_log,
-            )
+            if output_format.lower() == "json":
+                findings = scan_directory(
+                    directory=target,
+                    patterns=patterns,
+                    respect_gitignore=True,
+                    exclude_patterns=config.exclude,
+                    max_file_size_bytes=config.max_file_size_bytes,
+                    verbose_log=verbose_log,
+                    stats=stats,
+                )
+            else:
+                with console.status("[bold cyan]Scanning project files for secrets...[/bold cyan]", spinner="dots"):
+                    findings = scan_directory(
+                        directory=target,
+                        patterns=patterns,
+                        respect_gitignore=True,
+                        exclude_patterns=config.exclude,
+                        max_file_size_bytes=config.max_file_size_bytes,
+                        verbose_log=verbose_log,
+                        stats=stats,
+                    )
 
         if is_verbose and verbose_log:
             for log_entry in verbose_log:
@@ -177,7 +226,7 @@ def scan_cmd(ctx: click.Context, path: Path, output_format: str, baseline_path: 
         else:
             if suppressed_findings:
                 console.print(f"[dim]Suppressed {len(suppressed_findings)} finding(s) matching baseline.[/dim]\n")
-            print_scan_findings(new_findings, title=f"Scan Report: {target.name}")
+            print_scan_findings(new_findings, title=f"Scan Report: {target.name}", stats=stats)
 
         if new_findings:
             sys.exit(1)
@@ -219,7 +268,7 @@ def check_cmd(ctx: click.Context, output_format: str, baseline_path: Optional[Pa
         if output_format.lower() == "json":
             render_diff_json(None, error=err_msg)
         else:
-            console.print(f"[bold red]Error:[/bold red] {err_msg}")
+            handle_cli_error(GitError(err_msg), verbose=is_verbose)
         sys.exit(2)
 
     try:
@@ -236,7 +285,7 @@ def check_cmd(ctx: click.Context, output_format: str, baseline_path: Optional[Pa
             if output_format.lower() == "json":
                 render_check_json(blocking_findings=[], low_findings=[], no_staged=True)
             else:
-                console.print("[green]✓ No staged files to scan.[/green]")
+                print_check_passed(no_staged=True)
             sys.exit(0)
 
         patterns = load_default_patterns(
@@ -261,13 +310,14 @@ def check_cmd(ctx: click.Context, output_format: str, baseline_path: Optional[Pa
         baseline_fingerprints = load_baseline(resolved_baseline) if resolved_baseline else set()
         new_findings, suppressed_findings = filter_baseline_findings(findings, baseline_fingerprints)
 
-        blocking_findings = [f for f in new_findings if f.is_blocking_for(config.block_on)]
-        non_blocking_findings = [f for f in new_findings if not f.is_blocking_for(config.block_on)]
+        blocking_findings = [f for f in new_findings if f.is_blocking]
+        low_findings = [f for f in new_findings if not f.is_blocking]
 
         if output_format.lower() == "json":
             render_check_json(
                 blocking_findings=blocking_findings,
-                low_findings=non_blocking_findings,
+                low_findings=low_findings,
+                no_staged=False,
             )
         else:
             if suppressed_findings:
@@ -275,14 +325,8 @@ def check_cmd(ctx: click.Context, output_format: str, baseline_path: Optional[Pa
 
             if blocking_findings:
                 print_blocked_commit(blocking_findings)
-                if non_blocking_findings:
-                    console.print(f"[yellow]Note: Also detected {len(non_blocking_findings)} non-blocking finding(s).[/yellow]\n")
-            elif non_blocking_findings:
-                console.print("[yellow]⚠ Non-blocking warnings detected in staged content:[/yellow]")
-                print_scan_findings(non_blocking_findings, title="Staged Content Warnings")
-                console.print("[green]✓ Staged content passed security gate.[/green]")
             else:
-                console.print("[green]✓ Staged content clean. No secrets detected.[/green]")
+                print_check_passed(low_findings_count=len(low_findings))
 
         if blocking_findings:
             sys.exit(1)
@@ -298,19 +342,17 @@ def check_cmd(ctx: click.Context, output_format: str, baseline_path: Optional[Pa
 @main.command(name="diff")
 @click.option(
     "--env",
-    "-e",
     "env_path",
     type=click.Path(path_type=Path),
-    default=".env",
-    help="Path to actual .env file (default: .env)",
+    default=Path(".env"),
+    help="Path to .env file (defaults to .env).",
 )
 @click.option(
     "--example",
-    "-x",
     "example_path",
     type=click.Path(path_type=Path),
-    default=".env.example",
-    help="Path to example template file (default: .env.example)",
+    default=Path(".env.example"),
+    help="Path to .env.example file (defaults to .env.example).",
 )
 @click.option(
     "--format",
@@ -339,7 +381,7 @@ def diff_cmd(ctx: click.Context, env_path: Path, example_path: Path, output_form
         if output_format.lower() == "json":
             render_diff_json(None, error=err_msg)
         else:
-            console.print(f"[bold red]Error:[/bold red] {err_msg}")
+            handle_cli_error(FileNotFoundError(err_msg), verbose=is_verbose)
         sys.exit(2)
 
     try:
@@ -418,6 +460,19 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
         # 4. Check pre-commit hook
         hook_installed = is_git and is_hook_installed(repo_root)
 
+        # 5. Configuration & Baseline status
+        baseline_file = repo_root / DEFAULT_BASELINE_FILENAME
+        baseline_status = None
+        if baseline_file.is_file():
+            try:
+                b_data = load_baseline(baseline_file)
+                baseline_status = f"[green]ACTIVE ({len(b_data.fingerprints)} entries)[/green]"
+            except Exception:
+                baseline_status = "[yellow]INVALID[/yellow]"
+
+        config_file = repo_root / ".envguard.yml"
+        config_status = "[green]VALID (.envguard.yml)[/green]" if config_file.is_file() else "[dim]DEFAULT[/dim]"
+
         if output_format.lower() == "json":
             # Compute status
             high = sum(1 for f in findings if f.severity == "HIGH")
@@ -448,6 +503,8 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
                 diff_result=diff_result,
                 diff_error=diff_error,
                 hook_installed=hook_installed,
+                config_status=config_status,
+                baseline_status=baseline_status,
             )
         sys.exit(0)
     except EnvGuardError as e:
@@ -466,7 +523,7 @@ def install_hook_cmd(ctx: click.Context, verbose: bool) -> None:
     is_verbose = verbose or ctx.obj.get("VERBOSE", False)
     cwd = Path.cwd()
     if not is_git_repo(cwd):
-        console.print("[bold red]Error:[/bold red] Current directory is not a Git repository.")
+        handle_cli_error(GitError("Current directory is not a Git repository."), verbose=is_verbose)
         sys.exit(2)
 
     try:
@@ -474,15 +531,14 @@ def install_hook_cmd(ctx: click.Context, verbose: bool) -> None:
         success, message = install_pre_commit_hook(repo_root)
 
         if success:
-            console.print(f"[green]✓ {message}[/green]")
-            console.print(
-                "\n[bold]Your staged changes will now be checked for secrets before every commit.[/bold]\n"
-                "[dim]Note: Ensure 'envguard' is accessible in your system PATH.[/dim]\n"
-            )
+            print_hook_installed(message)
             sys.exit(0)
         else:
-            console.print(f"[bold red]Failed to install hook:[/bold red] {message}")
+            handle_cli_error(HookError(f"Failed to install hook: {message}"), verbose=is_verbose)
             sys.exit(2)
+    except EnvGuardError as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
     except Exception as e:
         handle_cli_error(e, verbose=is_verbose)
         sys.exit(2)
@@ -531,7 +587,6 @@ def baseline_create_cmd(ctx: click.Context, path: Path, output_path: Path, overw
             severity_overrides=config.severity_overrides,
         )
 
-        # Baseline creation scans everything WITHOUT suppressing against existing baseline
         findings = scan_directory(
             directory=target_dir,
             patterns=patterns,
@@ -546,10 +601,15 @@ def baseline_create_cmd(ctx: click.Context, path: Path, output_path: Path, overw
             overwrite=overwrite,
         )
 
-        console.print("[green]✓ Baseline created successfully.[/green]\n")
-        console.print(f"[bold]Findings captured:[/bold] {captured_count}")
-        console.print(f"[bold]Baseline file:[/bold] {resolved_output.name}\n")
-        console.print("[dim]Existing findings are now registered in the baseline and will be suppressed during regular scans.[/dim]")
+        console.print()
+        console.print(
+            create_success_panel(
+                "BASELINE CREATED",
+                f"Captured [cyan]{captured_count}[/cyan] secret fingerprint(s) in [bold]{resolved_output.name}[/bold].\n"
+                f"[dim]Existing findings will now be suppressed during scans when using --baseline.[/dim]",
+            )
+        )
+        console.print()
         sys.exit(0)
     except EnvGuardError as e:
         handle_cli_error(e, verbose=is_verbose)

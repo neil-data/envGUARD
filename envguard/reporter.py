@@ -1,4 +1,11 @@
+"""Reporter and formatting module for EnvGuard v0.2.5.
+
+Supports both human-friendly Rich terminal UI and machine-readable JSON formats.
+Follows consistent severity presentation and layout standards across all commands.
+"""
+
 import json
+from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional
 
@@ -9,7 +16,9 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from rich.console import Console
+from rich import box
+from rich.align import Align
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -17,8 +26,26 @@ from rich.text import Text
 from envguard import __version__
 from envguard.env_diff import EnvDiffResult
 from envguard.scanner import ScanFinding
+from envguard.theme import (
+    COLOR_ERROR,
+    COLOR_HIGH,
+    COLOR_INFO,
+    COLOR_LOW,
+    COLOR_MEDIUM,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    SYMBOL_ERROR,
+    SYMBOL_INFO,
+    SYMBOL_SUCCESS,
+    SYMBOL_WARNING,
+    console,
+    create_error_panel,
+    create_panel,
+    create_success_panel,
+    create_summary_panel,
+    format_severity,
+)
 
-console = Console()
 JSON_SCHEMA_VERSION = 1
 
 
@@ -179,104 +206,199 @@ def render_status_json(
     print_json(data)
 
 
-def print_scan_findings(findings: List[ScanFinding], title: str = "Scan Findings") -> None:
-    """Print detailed list of secret scan findings."""
+# --------------------------------------------------------------------------
+# Terminal Presentation Functions (Rich-Powered UI)
+# --------------------------------------------------------------------------
+
+def print_scan_findings(
+    findings: List[ScanFinding],
+    title: str = "Scan Findings",
+    stats: Optional[Dict[str, int]] = None,
+) -> None:
+    """Print detailed list of secret scan findings with summary and table."""
     if not findings:
-        console.print("[green]✓ No secrets detected in scanned files.[/green]")
+        sub = "No secrets were detected in the scanned files."
+        if stats and "files_scanned" in stats:
+            sub += f"\n[dim]Files scanned: {stats['files_scanned']} | Files skipped: {stats.get('files_skipped', 0)}[/dim]"
+        console.print()
+        console.print(create_success_panel("SCAN PASSED", sub))
+        console.print()
         return
 
-    for finding in findings:
-        if finding.severity == "HIGH":
-            badge = "[bold red]🔴 HIGH SEVERITY SECRET DETECTED[/bold red]"
-            border_style = "red"
-        elif finding.severity == "MEDIUM":
-            badge = "[bold yellow]🟠 MEDIUM SEVERITY FINDING[/bold yellow]"
-            border_style = "yellow"
-        else:
-            badge = "[bold blue]🟡 LOW SEVERITY WARNING[/bold blue]"
-            border_style = "blue"
-
-        body = (
-            f"{badge}\n\n"
-            f"[bold]File:[/bold] {finding.file_path}\n"
-            f"[bold]Line:[/bold] {finding.line_number}\n"
-            f"[bold]Rule ID:[/bold] [magenta]{finding.rule_id}[/magenta]\n"
-            f"[bold]Rule Name:[/bold] {finding.rule_name}\n"
-            f"[bold]Severity:[/bold] {finding.severity}\n"
-            f"[bold]Value:[/bold] [cyan]{finding.masked_value}[/cyan]"
-        )
-        console.print(Panel(body, border_style=border_style, expand=False))
+    # 1. Summary Panel
+    if stats and "files_scanned" in stats:
         console.print()
+        console.print(
+            create_summary_panel(
+                files_scanned=stats.get("files_scanned", 0),
+                files_skipped=stats.get("files_skipped", 0),
+                findings_count=len(findings),
+            )
+        )
 
-    # Summary table
+    # 2. Findings Table
+    table = Table(
+        title="[bold]Detected Secrets[/bold]",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        expand=False,
+    )
+    table.add_column("Severity", justify="center", style="bold")
+    table.add_column("Rule ID", style="bold")
+    table.add_column("File")
+    table.add_column("Line", justify="right")
+    table.add_column("Masked Value", style="cyan")
+
+    for f in findings:
+        table.add_row(
+            format_severity(f.severity),
+            f.rule_id,
+            f.file_path,
+            str(f.line_number),
+            f.masked_value,
+        )
+
+    console.print()
+    console.print(table)
+
+    # 3. Concise breakdown footer
     high_count = sum(1 for f in findings if f.severity == "HIGH")
     med_count = sum(1 for f in findings if f.severity == "MEDIUM")
     low_count = sum(1 for f in findings if f.severity == "LOW")
 
-    summary = Table.grid(padding=(0, 2))
-    summary.add_column(style="bold")
-    summary.add_column()
-    summary.add_row("Total Findings:", f"{len(findings)}")
-    summary.add_row("High Severity:", f"[red]{high_count}[/red]")
-    summary.add_row("Medium Severity:", f"[yellow]{med_count}[/yellow]")
-    summary.add_row("Low Severity:", f"[blue]{low_count}[/blue]")
-
-    console.print(Panel(summary, title="[bold]Summary[/bold]", border_style="dim", expand=False))
+    console.print()
+    console.print(
+        f"[bold]Breakdown:[/bold] [bold red]{high_count} HIGH[/bold red]  •  "
+        f"[bold yellow]{med_count} MEDIUM[/bold yellow]  •  "
+        f"[bold blue]{low_count} LOW[/bold blue]"
+    )
+    console.print()
 
 
 def print_blocked_commit(findings: List[ScanFinding]) -> None:
-    """Display the EnvGuard blocked commit alert banner."""
-    header = (
-        "[bold white on red]                                    [/bold white on red]\n"
-        "[bold white on red]      ENVGUARD BLOCKED COMMIT       [/bold white on red]\n"
-        "[bold white on red]                                    [/bold white on red]"
+    """Display the EnvGuard blocked commit alert screen with guidance."""
+    high_count = sum(1 for f in findings if f.severity == "HIGH")
+    med_count = sum(1 for f in findings if f.severity == "MEDIUM")
+
+    header_content = Group(
+        Text(""),
+        Align.center(Text("ENVGUARD BLOCKED COMMIT", style="bold red")),
+        Text(""),
+        Align.center(Text("Blocking security findings were detected in staged changes.", style="white")),
+        Text(""),
+        Align.center(Text.from_markup(f"[bold red]HIGH:   {high_count}[/bold red]     [bold yellow]MEDIUM: {med_count}[/bold yellow]")),
+        Text(""),
     )
-    console.print(Panel(header, border_style="red", expand=False))
+    console.print()
+    console.print(Panel(header_content, border_style="red", box=box.ROUNDED, expand=False, padding=(0, 2)))
     console.print()
 
-    for finding in findings:
-        badge = (
-            "[bold red]🔴 HIGH SEVERITY SECRET DETECTED[/bold red]"
-            if finding.severity == "HIGH"
-            else "[bold yellow]🟠 MEDIUM SEVERITY SECRET DETECTED[/bold yellow]"
-        )
-        body = (
-            f"{badge}\n\n"
-            f"[bold]File:[/bold] {finding.file_path}\n"
-            f"[bold]Line:[/bold] {finding.line_number}\n"
-            f"[bold]Rule ID:[/bold] [magenta]{finding.rule_id}[/magenta]\n"
-            f"[bold]Rule Name:[/bold] {finding.rule_name}\n"
-            f"[bold]Value:[/bold] [cyan]{finding.masked_value}[/cyan]"
-        )
-        console.print(Panel(body, border_style="red", expand=False))
-        console.print()
+    # Table of blocking findings
+    table = Table(
+        title="[bold red]Blocking Staged Findings[/bold red]",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold red",
+        expand=False,
+    )
+    table.add_column("Severity", justify="center", style="bold")
+    table.add_column("Rule ID", style="bold")
+    table.add_column("File")
+    table.add_column("Line", justify="right")
+    table.add_column("Masked Value", style="cyan")
 
-    console.print("[bold red]Commit blocked to protect your repository.[/bold red]")
-    console.print("[yellow]Remove or replace the secret(s), re-stage your changes, and try again.[/yellow]\n")
+    for f in findings:
+        table.add_row(
+            format_severity(f.severity),
+            f.rule_id,
+            f.file_path,
+            str(f.line_number),
+            f.masked_value,
+        )
+
+    console.print(table)
+    console.print()
+
+    # Generic Remediation Steps
+    steps = (
+        "[bold cyan]1.[/bold cyan] Remove sensitive credentials from staged files.\n"
+        "[bold cyan]2.[/bold cyan] Store credentials using secure environment configuration.\n"
+        "[bold cyan]3.[/bold cyan] Rotate credentials if a real secret was exposed.\n"
+        "[bold cyan]4.[/bold cyan] Stage the corrected files and try again."
+    )
+    console.print(
+        Panel(
+            steps,
+            title="[bold]Next Steps[/bold]",
+            border_style="yellow",
+            box=box.ROUNDED,
+            expand=False,
+            padding=(0, 2),
+        )
+    )
+    console.print()
+
+
+def print_check_passed(low_findings_count: int = 0, no_staged: bool = False) -> None:
+    """Display clean success screen for git check."""
+    console.print()
+    if no_staged:
+        console.print(
+            create_success_panel(
+                "CHECK PASSED",
+                "No staged Git changes to check.\n[dim]Stage files with 'git add' to scan before committing.[/dim]",
+            )
+        )
+    else:
+        msg = "No blocking secrets were detected in the staged Git changes."
+        if low_findings_count > 0:
+            msg += f"\n\n[bold blue]Notice:[/bold blue] {low_findings_count} low-severity warning(s) detected (non-blocking)."
+        console.print(create_success_panel("CHECK PASSED", msg))
+    console.print()
 
 
 def print_diff_report(diff_result: EnvDiffResult) -> None:
-    """Print environment variable drift comparison results inside a proper panel."""
+    """Print environment variable drift comparison results."""
+    console.print()
     if not diff_result.has_drift:
-        console.print(Panel("[green]✓ .env and .env.example are synchronized.[/green]", border_style="green", expand=False))
+        console.print(
+            create_success_panel(
+                "ENVIRONMENT SYNCHRONIZED",
+                f".env and .env.example are synchronized ({diff_result.env_keys_count} variables).",
+            )
+        )
+        console.print()
         return
 
-    table = Table(show_header=False, box=None, padding=(0, 2))
+    header = (
+        "[bold]ENVIRONMENT CONFIGURATION DRIFT[/bold]\n\n"
+        f"[bold].env variables:[/bold] {diff_result.env_keys_count}      "
+        f"[bold].env.example variables:[/bold] {diff_result.example_keys_count}"
+    )
+    console.print(Panel(header, border_style="yellow", box=box.ROUNDED, expand=False, padding=(0, 2)))
+    console.print()
+
+    table = Table(
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold yellow",
+        expand=False,
+    )
     table.add_column("Status", style="bold")
-    table.add_column("Variables")
+    table.add_column("Environment Variable", style="white")
 
     if diff_result.missing_from_example:
-        vars_str = "\n".join(f"[red]✗[/red] {key}" for key in diff_result.missing_from_example)
-        table.add_row("[bold red]Missing from .env.example:[/bold red]", vars_str)
+        for key in diff_result.missing_from_example:
+            table.add_row("[bold red]Missing from .env.example[/bold red]", f"[red]✗[/red] {key}")
 
     if diff_result.extra_in_example:
         if diff_result.missing_from_example:
             table.add_section()
-        vars_str = "\n".join(f"[yellow]⚠[/yellow] {key}" for key in diff_result.extra_in_example)
-        table.add_row("[bold yellow]Extra in .env.example:[/bold yellow]", vars_str)
+        for key in diff_result.extra_in_example:
+            table.add_row("[bold yellow]Extra in .env.example[/bold yellow]", f"[yellow]⚠[/yellow] {key}")
 
-    console.print()
-    console.print(Panel(table, title="[bold]Environment Drift Report[/bold]", border_style="yellow", expand=False))
+    console.print(table)
     console.print()
 
 
@@ -287,88 +409,163 @@ def print_status_dashboard(
     diff_result: Optional[EnvDiffResult],
     diff_error: Optional[str],
     hook_installed: bool,
+    config_status: Optional[str] = None,
+    baseline_status: Optional[str] = None,
 ) -> str:
-    """Render comprehensive EnvGuard security status report inside a proper panel."""
+    """Render comprehensive EnvGuard security status report and return status label."""
     high_count = sum(1 for f in findings if f.severity == "HIGH")
     med_count = sum(1 for f in findings if f.severity == "MEDIUM")
     low_count = sum(1 for f in findings if f.severity == "LOW")
     has_drift = diff_result is not None and diff_result.has_drift
 
+    # Compute overall status
+    explanation = ""
     if env_tracked or high_count > 0:
         overall_label = "CRITICAL"
-        overall_text = "[bold red]🔴 CRITICAL — IMMEDIATE ACTION REQUIRED[/bold red]"
         border_style = "red"
+        reasons = []
+        if high_count > 0:
+            reasons.append(f"{high_count} High severity secret(s) detected in repository")
+        if env_tracked:
+            reasons.append(".env file is tracked in Git")
+        explanation = " • ".join(reasons) + "."
     elif med_count > 0 or has_drift or not hook_installed:
         overall_label = "ATTENTION REQUIRED"
-        overall_text = "[bold yellow]🟠 ATTENTION REQUIRED[/bold yellow]"
         border_style = "yellow"
+        reasons = []
+        if med_count > 0:
+            reasons.append(f"{med_count} Medium severity finding(s)")
+        if has_drift:
+            reasons.append(f"{len(diff_result.missing_from_example)} variable(s) missing from .env.example" if diff_result.missing_from_example else "Environment drift detected")
+        if not hook_installed:
+            reasons.append("Pre-commit hook not installed")
+        explanation = " • ".join(reasons) + "."
     elif low_count > 0:
         overall_label = "WARNING"
-        overall_text = "[bold blue]🟡 WARNING[/bold blue]"
         border_style = "blue"
+        explanation = f"{low_count} low-severity warning(s) detected."
     else:
         overall_label = "SECURE"
-        overall_text = "[bold green]🟢 SECURE[/bold green]"
         border_style = "green"
+        explanation = "All security checks passed. Repository is protected."
 
-    table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column("Check", style="bold")
-    table.add_column("Status")
+    table = Table(
+        title="[bold]ENVGUARD PROJECT STATUS[/bold]",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        expand=False,
+    )
+    table.add_column("Check", style="bold", min_width=24)
+    table.add_column("Status", min_width=18)
 
     # 1. Git Repository
     table.add_row(
         "Git Repository",
-        "[green]✓ YES[/green]" if is_git else "[yellow]✗ NO (not inside a Git repo)[/yellow]",
+        "[green]DETECTED[/green]" if is_git else "[yellow]NOT DETECTED[/yellow]",
     )
 
-    # 2. .env tracked
-    if env_tracked:
-        table.add_row(".env tracked", "[bold red]🔴 YES — SECURITY RISK[/bold red]")
-    else:
-        table.add_row(".env tracked", "[green]✓ NO[/green]")
-
-    # 3. Secrets detected
+    # 2. Secrets
     if high_count > 0:
-        table.add_row("Secrets detected", f"[bold red]🔴 {high_count} High, {med_count} Medium found[/bold red]")
+        table.add_row("Secrets", f"[bold red]CRITICAL ({high_count} HIGH, {med_count} MED)[/bold red]")
     elif med_count > 0:
-        table.add_row("Secrets detected", f"[bold yellow]🟠 {med_count} Medium found[/bold yellow]")
+        table.add_row("Secrets", f"[bold yellow]ATTENTION ({med_count} MED)[/bold yellow]")
     elif low_count > 0:
-        table.add_row("Secrets detected", f"[bold blue]🟡 {low_count} Low-severity warnings[/bold blue]")
+        table.add_row("Secrets", f"[bold blue]WARNING ({low_count} LOW)[/bold blue]")
     else:
-        table.add_row("Secrets detected", "[green]✓ None[/green]")
+        table.add_row("Secrets", "[green]CLEAN[/green]")
 
-    # 4. .env.example sync
+    # 3. .env Tracked
+    if env_tracked:
+        table.add_row(".env Tracked", "[bold red]YES (ALERT)[/bold red]")
+    else:
+        table.add_row(".env Tracked", "[green]NO[/green]")
+
+    # 4. .env.example Sync
     if diff_error:
-        table.add_row(".env.example sync", f"[dim]{diff_error}[/dim]")
+        table.add_row(".env.example Sync", f"[dim]{diff_error}[/dim]")
     elif diff_result and diff_result.has_drift:
-        parts = []
+        drift_desc = []
         if diff_result.missing_from_example:
-            parts.append(f"{len(diff_result.missing_from_example)} missing from example")
+            drift_desc.append(f"{len(diff_result.missing_from_example)} missing")
         if diff_result.extra_in_example:
-            parts.append(f"{len(diff_result.extra_in_example)} extra in example")
-        table.add_row(".env.example sync", f"[bold yellow]⚠ {', '.join(parts)}[/bold yellow]")
+            drift_desc.append(f"{len(diff_result.extra_in_example)} extra")
+        table.add_row(".env.example Sync", f"[bold yellow]ATTENTION ({', '.join(drift_desc)})[/bold yellow]")
     elif diff_result:
-        table.add_row(".env.example sync", "[green]✓ Synchronized[/green]")
+        table.add_row(".env.example Sync", "[green]SYNCHRONIZED[/green]")
     else:
-        table.add_row(".env.example sync", "[dim]No .env files to check[/dim]")
+        table.add_row(".env.example Sync", "[dim]NOT FOUND[/dim]")
 
-    # 5. Pre-commit hook
+    # 5. Pre-commit Hook
     if hook_installed:
-        table.add_row("Pre-commit hook", "[green]✓ Installed[/green]")
+        table.add_row("Pre-Commit Hook", "[green]INSTALLED[/green]")
     else:
-        table.add_row("Pre-commit hook", "[yellow]⚠ Not installed (run 'envguard install-hook')[/yellow]")
+        table.add_row("Pre-Commit Hook", "[yellow]NOT INSTALLED[/yellow]")
 
-    # Section divider and Overall Status inside the box
-    table.add_section()
-    table.add_row("Overall Status", overall_text)
+    # 6. Configuration
+    if config_status:
+        table.add_row("Configuration", config_status)
+    else:
+        table.add_row("Configuration", "[green]VALID[/green]")
 
-    panel = Panel(
-        table,
-        title="[bold]EnvGuard Security Report[/bold]",
-        border_style=border_style,
-        expand=False,
-    )
+    # 7. Baseline
+    if baseline_status:
+        table.add_row("Baseline", baseline_status)
+    else:
+        table.add_row("Baseline", "[dim]NOT FOUND[/dim]")
+
     console.print()
-    console.print(panel)
+    console.print(table)
+    console.print()
+
+    # Overall Status Panel
+    status_content = (
+        f"[bold]OVERALL STATUS:[/bold] [bold {border_style}]{overall_label}[/bold {border_style}]\n\n"
+        f"{explanation}"
+    )
+    console.print(
+        Panel(
+            status_content,
+            border_style=border_style,
+            box=box.ROUNDED,
+            expand=False,
+            padding=(0, 2),
+        )
+    )
     console.print()
     return overall_label
+
+
+def print_hook_installed(message: str) -> None:
+    """Display clear, professional feedback upon pre-commit hook installation."""
+    is_refreshed = "already installed and has been refreshed" in message
+    is_appended = "Safely appended" in message
+
+    if is_refreshed:
+        title = "Hook Refreshed"
+        desc = "EnvGuard pre-commit hook was refreshed to the latest version.\nExisting hooks were preserved."
+    elif is_appended:
+        title = "Hook Appended"
+        desc = "EnvGuard pre-commit hook was safely appended to your existing pre-commit script.\nExisting hooks were preserved."
+    else:
+        title = "Hook Installed"
+        desc = "EnvGuard pre-commit protection is now active."
+
+    content = (
+        f"{desc}\n\n"
+        "[bold]The following command will run automatically before commits:[/bold]\n"
+        "  [cyan]envguard check[/cyan]\n\n"
+        "[dim]Note: Ensure 'envguard' is accessible in your system PATH.[/dim]"
+    )
+    console.print()
+    console.print(
+        Panel(
+            content,
+            title=f"[bold green]{title}[/bold green]",
+            border_style="green",
+            box=box.ROUNDED,
+            expand=False,
+            padding=(0, 2),
+        )
+    )
+    console.print()

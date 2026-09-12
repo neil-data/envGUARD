@@ -23,7 +23,7 @@ def test_scan_json_output_clean(runner, tmp_path):
 
     data = json.loads(result.output)
     assert data["schema_version"] == 1
-    assert data["envguard_version"] == "0.2.0"
+    assert data["envguard_version"] == "0.2.5"
     assert data["command"] == "scan"
     assert data["status"] == "passed"
     assert data["summary"]["total"] == 0

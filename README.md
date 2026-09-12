@@ -6,11 +6,12 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/version-0.2.0-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
+[![Release](https://img.shields.io/badge/version-0.2.5-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
-[![Tests](https://img.shields.io/badge/tests-36%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-47%20passed-brightgreen.svg)](#testing)
 
 <p>
+  <a href="#why-envguard">Why EnvGuard</a> ·
   <a href="#key-features">Key Features</a> ·
   <a href="#installation">Installation</a> ·
   <a href="#cli-commands">CLI Commands</a> ·
@@ -55,9 +56,9 @@ All secret detection, line-by-line streaming, and SHA-256 baseline fingerprintin
 | **Pre-Commit Gate** (`envguard check`) | Inspects only staged Git index content (`git show :path`), blocking risky commits before credentials touch Git history. |
 | **Directory Scanner** (`envguard scan`) | Line-by-line streaming scan that respects `.gitignore` and `.envguard.yml` exclusions, safely skipping binary and oversized files. |
 | **Environment Drift Gate** (`envguard diff`) | Compares `.env` against `.env.example` by key only, flagging missing or stale variables without ever reading secret values. |
-| **Security Dashboard** (`envguard status`) | Severity-aware health check covering `.env` Git-tracking risk, credential leaks, and hook status. |
+| **Security Dashboard** (`envguard status`) | Severity-aware health check covering `.env` Git-tracking risk, credential leaks, baseline status, and hook status. |
 | **Cryptographic Baseline** (`envguard baseline create`) | Suppresses existing legacy findings via SHA-256 fingerprints. Adopt EnvGuard on an old codebase without blocking current work. Never writes plaintext secrets to disk. |
-| **Interactive Console** (`envguard menu` / `envguard ui`) | A built-in dashboard, plus a dedicated Windows Terminal / Command Prompt launcher with a sandboxed demo mode. |
+| **Interactive Console** (`envguard menu` / `envguard ui`) | A built-in Rich dashboard, plus a dedicated Windows Terminal / Command Prompt launcher with a sandboxed demo mode. |
 | **Strict Secret Masking** | Full secrets are never printed in terminal output, JSON, or error messages (e.g. `AKIA••••••••••••MPLE`). |
 | **CI/CD Ready** | Standardized JSON output (`schema_version: 1`) and a strict exit-code contract for automated pipelines. |
 
@@ -67,7 +68,7 @@ All secret detection, line-by-line streaming, and SHA-256 baseline fingerprintin
 
 **Option 1 — From wheel**
 ```bash
-pip install dist/envguard-0.2.0-py3-none-any.whl
+pip install dist/envguard-0.2.5-py3-none-any.whl
 ```
 
 **Option 2 — Editable / developer mode**
@@ -80,7 +81,7 @@ pip install -e .
 Verify the install:
 ```bash
 envguard --version
-# envguard, version 0.2.0
+# EnvGuard version 0.2.5
 ```
 
 Works identically in cmd, PowerShell, and Unix shells.
@@ -89,16 +90,46 @@ Works identically in cmd, PowerShell, and Unix shells.
 
 ## CLI Commands
 
-### `envguard check`
-Scans only staged Git content from the index.
+### 1. `envguard check`
+Scans **only staged Git content** directly from the Git index.
 ```bash
 envguard check
 envguard check --format json
 ```
 `HIGH` and `MEDIUM` severity findings block the commit (exit code `1`). `LOW` severity findings warn without blocking (exit code `0`).
 
-### `envguard scan`
-Recursively scans the working directory for secrets.
+#### Blocked Commit Screen:
+```text
+┌──────────────────────────────────────────────────────────┐
+│                                                          │
+│                 ENVGUARD BLOCKED COMMIT                  │
+│                                                          │
+│ Blocking security findings were detected in staged changes│
+│                                                          │
+│            HIGH: 1          MEDIUM: 1                    │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+
+                  Blocking Staged Findings                  
+┌──────────┬────────────────────┬─────────────┬──────┬───────────────────────┐
+│ Severity │ Rule ID            │ File        │ Line │ Masked Value          │
+├──────────┼────────────────────┼─────────────┼──────┼───────────────────────┤
+│   HIGH   │ aws-access-key     │ config.py   │   24 │ AKIA••••••••••••MPLE  │
+│  MEDIUM  │ api-key-assignment │ settings.py │   18 │ sk_live_••••••••      │
+└──────────┴────────────────────┴─────────────┴──────┴───────────────────────┘
+
+┌──────────────────────────── Next Steps ────────────────────────────┐
+│ 1. Remove sensitive credentials from staged files.                 │
+│ 2. Store credentials using secure environment configuration.       │
+│ 3. Rotate credentials if a real secret was exposed.                │
+│ 4. Stage the corrected files and try again.                        │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 2. `envguard scan`
+Recursively scans the working directory for secrets with real-time feedback.
 ```bash
 envguard scan
 envguard scan --path ./src
@@ -106,7 +137,28 @@ envguard scan --format json
 envguard scan --verbose
 ```
 
-### `envguard diff`
+#### Scan Complete Output:
+```text
+┌───────────── Scan Complete ─────────────┐
+│ Files scanned: 124                      │
+│ Files skipped: 8                        │
+│ Findings: 2                             │
+└─────────────────────────────────────────┘
+
+                      Detected Secrets                      
+┌──────────┬────────────────────┬─────────────┬──────┬───────────────────────┐
+│ Severity │ Rule ID            │ File        │ Line │ Masked Value          │
+├──────────┼────────────────────┼─────────────┼──────┼───────────────────────┤
+│   HIGH   │ aws-access-key     │ config.py   │   24 │ AKIA••••••••••••MPLE  │
+│  MEDIUM  │ api-key-assignment │ settings.py │   18 │ sk_live_••••••••      │
+└──────────┴────────────────────┴─────────────┴──────┴───────────────────────┘
+
+Breakdown: 1 HIGH  •  1 MEDIUM  •  0 LOW
+```
+
+---
+
+### 3. `envguard diff`
 Compares environment variable keys between `.env` and `.env.example`.
 ```bash
 envguard diff
@@ -114,48 +166,106 @@ envguard diff --env .env.local --example .env.template
 ```
 Flags variables present in `.env` but missing from `.env.example`, and vice versa. Values are never parsed or logged.
 
-### `envguard status`
-Displays a severity-aware project security dashboard — Git repo status, whether `.env` is accidentally tracked (critical), active findings by severity, `.env.example` sync, and hook install status.
+#### Drift Report:
+```text
+┌──────────── ENVIRONMENT CONFIGURATION DRIFT ────────────┐
+│ .env variables: 12      .env.example variables: 10      │
+└─────────────────────────────────────────────────────────┘
+
+┌──────────────────────────┬──────────────────────┐
+│ Status                   │ Environment Variable │
+├──────────────────────────┼──────────────────────┤
+│ Missing from .env.example│ ✗ STRIPE_WEBHOOK_KEY │
+│ Missing from .env.example│ ✗ SENTRY_DSN         │
+├──────────────────────────┼──────────────────────┤
+│ Extra in .env.example    │ ⚠ DEPRECATED_URL     │
+└──────────────────────────┴──────────────────────┘
+```
+
+---
+
+### 4. `envguard status`
+Displays a severity-aware project security dashboard — Git repo status, whether `.env` is accidentally tracked (critical), active findings by severity, `.env.example` sync, configuration, baseline, and hook install status.
 ```bash
 envguard status
 ```
 
-### `envguard install-hook`
-Installs or safely appends the EnvGuard gate into `.git/hooks/pre-commit`, using clear boundary markers (`# BEGIN ENVGUARD HOOK` / `# END ENVGUARD HOOK`) so existing hooks are preserved. Works across Windows (Git Bash, cmd, PowerShell) and Unix.
+```text
+                  ENVGUARD PROJECT STATUS                   
+┌──────────────────────────┬───────────────────────────────┐
+│ Check                    │ Status                        │
+├──────────────────────────┼───────────────────────────────┤
+│ Git Repository           │ DETECTED                      │
+│ Secrets                  │ CLEAN                         │
+│ .env Tracked             │ NO                            │
+│ .env.example Sync        │ SYNCHRONIZED                  │
+│ Pre-Commit Hook          │ INSTALLED                     │
+│ Configuration            │ VALID (.envguard.yml)         │
+│ Baseline                 │ ACTIVE (3 entries)            │
+└──────────────────────────┴───────────────────────────────┘
+
+┌────────────────────────────────────────────────────────┐
+│  OVERALL STATUS: SECURE                                │
+│                                                        │
+│  All security checks passed. Repository is protected.  │
+└────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 5. `envguard install-hook`
+Installs or safely appends the EnvGuard safety gate into `.git/hooks/pre-commit`.
 ```bash
 envguard install-hook
 ```
+* Clear boundary markers (`# BEGIN ENVGUARD HOOK ... # END ENVGUARD HOOK`)
+* Preserves existing hooks without overwriting user scripts
+* Runs automatically before every commit
 
-### `envguard baseline create`
-Captures all existing findings into `.envguard-baseline.json` as SHA-256 fingerprints, so future scans suppress known legacy findings.
+---
+
+### 6. `envguard baseline create`
+Captures all existing repository findings into `.envguard-baseline.json`.
 ```bash
 envguard baseline create
 envguard baseline create --overwrite
 ```
+Computes in-memory SHA-256 fingerprints. Subsequent scans suppress baseline findings, allowing adoption on legacy codebases without blocking current work.
 
 ---
 
 ## Interactive Console
 
-```bash
-envguard menu
-# or simply:
-envguard
-```
+Run `envguard menu` (or simply `envguard`) for the interactive console, or `envguard ui` to open it in a dedicated window:
 
-For a standalone window on Windows:
-```bash
-envguard ui
-```
-This spawns an independent console via Windows Terminal (`wt.exe`) or Command Prompt (`cmd.exe`), presenting a menu of:
+```text
+┌─────────────────────────────────────────────────────────┐
+│                                                         │
+│                        ENVGUARD                         │
+│             Developer Security Safety Gate              │
+│                                                         │
+│    Secrets • Git Protection • Environment Validation    │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
 
-- Project Security Status
-- Scan Working Directory for Secrets
-- Check Staged Git Changes (pre-commit gate)
-- Compare `.env` vs `.env.example` Drift
-- Install / Update Git Pre-Commit Hook
-- Run Safe Secret Leak Demo
-- Exit
+Project:         my-project
+Path:            C:\Projects\my-project
+EnvGuard:        v0.2.5
+Git Repository:  Detected
+
+┌─────────── Select an Option ────────────┐
+│   [1]    Project Security Status        │
+│   [2]    Scan Working Directory         │
+│   [3]    Check Staged Git Changes       │
+│   [4]    Compare .env vs .env.example   │
+│   [5]    Install Pre-Commit Hook        │
+│   [6]    Create / Update Baseline       │
+│   [7]    Run Safe Secret Leak Demo      │
+│   [0]    Exit                           │
+└─────────────────────────────────────────┘
+
+Select an option: 
+```
 
 ---
 
@@ -170,7 +280,7 @@ scan:
   max_file_size_mb: 5          # Skip files larger than 5 MB (default)
 
 exclude:
-  - tests/fixtures/**          # Custom glob exclusions
+  - tests/fixtures/**          # Glob exclusions
   - vendor/**
   - generated/**
 
@@ -182,7 +292,7 @@ rules:
     api-key-assignment: HIGH   # Override default severity
 
 placeholders:
-  - my_dummy_api_key           # Add custom whitelisted placeholders
+  - my_dummy_api_key           # Whitelisted placeholders
   - test_mock_token
 
 git:
@@ -273,14 +383,46 @@ tests/test_config.py::test_invalid_yaml_raises_configuration_error PASSED
 tests/test_config.py::test_unsupported_version_raises_configuration_error PASSED
 tests/test_config.py::test_invalid_severity_override_raises_configuration_error PASSED
 tests/test_config.py::test_unknown_rule_id_generates_warning PASSED
+tests/test_env_diff.py::test_env_diff_specification_case PASSED
+tests/test_env_diff.py::test_env_parser_supports_export_and_comments PASSED
+tests/test_env_diff.py::test_env_diff_synchronized PASSED
+tests/test_interactive.py::test_menu_exit_on_zero PASSED
+tests/test_interactive.py::test_menu_handles_invalid_input_then_exits PASSED
+tests/test_interactive.py::test_menu_actions_invoke_reusable_core_functions PASSED
+tests/test_interactive.py::test_safe_demo_uses_temp_directory_and_cleans_up PASSED
+tests/test_interactive.py::test_launch_separate_terminal_on_windows PASSED
+tests/test_interactive.py::test_launch_separate_terminal_fallback_cmd PASSED
+tests/test_interactive.py::test_launch_separate_terminal_non_windows_fallback PASSED
 tests/test_json_output.py::test_scan_json_output_clean PASSED
 tests/test_json_output.py::test_scan_json_output_with_findings PASSED
 tests/test_json_output.py::test_diff_json_output PASSED
 tests/test_json_output.py::test_status_json_output PASSED
+tests/test_patterns.py::test_load_default_patterns PASSED
+tests/test_patterns.py::test_mask_secret_never_reveals_full_secret PASSED
+tests/test_patterns.py::test_mask_secret_private_key PASSED
+tests/test_patterns.py::test_mask_secret_empty_or_edge_cases PASSED
 tests/test_performance.py::test_large_file_is_skipped PASSED
 tests/test_performance.py::test_exit_code_contract PASSED
-...
-============================= 36 passed in 0.95s ==============================
+tests/test_scanner.py::test_detect_aws_access_key PASSED
+tests/test_scanner.py::test_detect_github_token PASSED
+tests/test_scanner.py::test_detect_stripe_key PASSED
+tests/test_scanner.py::test_detect_pem_private_key PASSED
+tests/test_scanner.py::test_ignore_placeholder_values PASSED
+tests/test_scanner.py::test_ignore_empty_api_key PASSED
+tests/test_scanner.py::test_scan_directory_skips_binary_files PASSED
+tests/test_ui.py::test_theme_format_severity PASSED
+tests/test_ui.py::test_theme_panels_creation PASSED
+tests/test_ui.py::test_scan_findings_renders_table_with_masked_secrets PASSED
+tests/test_ui.py::test_scan_findings_clean_success PASSED
+tests/test_ui.py::test_blocked_commit_screen_renders_remediation PASSED
+tests/test_check_passed_screens PASSED
+tests/test_ui.py::test_diff_report_rendering PASSED
+tests/test_ui.py::test_status_dashboard_rendering PASSED
+tests/test_ui.py::test_hook_installed_feedback PASSED
+tests/test_ui.py::test_interactive_menu_options_display PASSED
+tests/test_ui.py::test_interactive_menu_baseline_option PASSED
+
+============================= 47 passed in 1.51s ==============================
 ```
 
 ---
@@ -290,12 +432,13 @@ tests/test_performance.py::test_exit_code_contract PASSED
 | Version | Milestone | Status |
 |---|---|:---:|
 | v0.1.0 | MVP | Complete |
-| v0.2.0 | Open-source foundation | Current Release |
+| v0.2.0 | Open-source foundation | Complete |
+| **v0.2.5** | **Rich terminal UI & Developer experience upgrade** | **Current Release ✅** |
 | v0.3.0 | Developer experience & auto-remediation | Planned |
 | v0.4.0 | Advanced detection (entropy, JWT, cloud providers) | Planned |
 | v0.5.0 | CI/CD & GitHub ecosystem action | Planned |
 | v0.6.0 | Team/project workflows & multi-repo policies | Planned |
-| v1.0.0 | Stable production release | Target |
+| v1.0.0 | Stable production release | Target 🚀 |
 
 ---
 

@@ -51,4 +51,4 @@ def test_exit_code_contract():
     # 3. Version exits with 0
     result_version = runner.invoke(main, ["--version"])
     assert result_version.exit_code == 0
-    assert "0.2.0" in result_version.output
+    assert "0.2.5" in result_version.output

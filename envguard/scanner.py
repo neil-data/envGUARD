@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import hashlib
 import os
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 import pathspec
 
 from envguard.git_handler import get_staged_file_bytes, get_staged_files
@@ -192,10 +192,29 @@ def scan_directory(
     exclude_patterns: Optional[List[str]] = None,
     max_file_size_bytes: int = DEFAULT_MAX_BYTES,
     verbose_log: Optional[List[str]] = None,
+    stats: Optional[Dict[str, int]] = None,
 ) -> List[ScanFinding]:
     """Scan current working directory recursively with streaming and size protection."""
     if patterns is None:
         patterns = load_default_patterns()
+
+    if stats is not None:
+        stats.setdefault("files_scanned", 0)
+        stats.setdefault("files_skipped", 0)
+
+    if directory.is_file():
+        findings, skip_reason = scan_file_streaming(
+            file_path=directory,
+            rel_path_str=directory.name,
+            patterns=patterns,
+            max_file_size_bytes=max_file_size_bytes,
+        )
+        if stats is not None:
+            if skip_reason:
+                stats["files_skipped"] += 1
+            else:
+                stats["files_scanned"] += 1
+        return findings
 
     spec = load_root_gitignore(directory) if respect_gitignore else None
     exclude_spec = compile_exclude_spec(exclude_patterns or [])
@@ -233,10 +252,14 @@ def scan_directory(
 
             # Check if file is ignored by .gitignore
             if spec and spec.match_file(rel_file):
+                if stats is not None:
+                    stats["files_skipped"] += 1
                 continue
 
             # Check if file is ignored by custom config exclude
             if exclude_spec and exclude_spec.match_file(rel_file):
+                if stats is not None:
+                    stats["files_skipped"] += 1
                 if verbose_log is not None:
                     verbose_log.append(f"Skipped excluded file: {rel_file}")
                 continue
@@ -248,8 +271,14 @@ def scan_directory(
                 max_file_size_bytes=max_file_size_bytes,
             )
 
-            if skip_reason and verbose_log is not None:
-                verbose_log.append(f"Skipped {skip_reason}: {rel_file}")
+            if skip_reason:
+                if stats is not None:
+                    stats["files_skipped"] += 1
+                if verbose_log is not None:
+                    verbose_log.append(f"Skipped {skip_reason}: {rel_file}")
+            else:
+                if stats is not None:
+                    stats["files_scanned"] += 1
 
             all_findings.extend(findings)
 
