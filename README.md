@@ -178,7 +178,7 @@ Flags variables present in `.env` but missing from `.env.example`, and vice vers
 │ Missing from .env.example│ ✗ STRIPE_WEBHOOK_KEY │
 │ Missing from .env.example│ ✗ SENTRY_DSN         │
 ├──────────────────────────┼──────────────────────┤
-│ Extra in .env.example    │ ⚠ DEPRECATED_URL     │
+│ Extra in .env.example    │ ⚠ DEPRECATED_URL    │
 └──────────────────────────┴──────────────────────┘
 ```
 
