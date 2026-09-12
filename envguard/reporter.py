@@ -24,7 +24,10 @@ from rich.table import Table
 from rich.text import Text
 
 from envguard import __version__
+from envguard.diagnostics import DiagnosticReport
 from envguard.env_diff import EnvDiffResult
+from envguard.initializer import InitResult
+from envguard.patterns import Pattern
 from envguard.scanner import ScanFinding
 from envguard.theme import (
     COLOR_ERROR,
@@ -89,6 +92,7 @@ def render_scan_json(
                 "line": f.line_number,
                 "masked_value": f.masked_value,
                 "fingerprint": f.fingerprint,
+                "detection_signals": getattr(f, "detection_signals", []),
             }
             for f in findings
         ],
@@ -133,6 +137,7 @@ def render_check_json(
                 "line": f.line_number,
                 "masked_value": f.masked_value,
                 "fingerprint": f.fingerprint,
+                "detection_signals": getattr(f, "detection_signals", []),
             }
             for f in all_findings
         ],
@@ -206,6 +211,102 @@ def render_status_json(
     print_json(data)
 
 
+def render_init_json(result: InitResult) -> None:
+    """Output initialization result in structured JSON format."""
+    data = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "envguard_version": __version__,
+        "command": "init",
+        "status": "passed",
+        "files": {
+            "config": {
+                "path": result.config_path.replace("\\", "/"),
+                "created": result.config_created,
+                "already_existed": result.config_existed,
+            },
+            "ignore": {
+                "path": result.ignore_path.replace("\\", "/"),
+                "created": result.ignore_created,
+                "already_existed": result.ignore_existed,
+            },
+        },
+    }
+    print_json(data)
+
+
+def render_doctor_json(report: DiagnosticReport) -> None:
+    """Output doctor diagnostic report in structured JSON format."""
+    status_map = {"PASS": "passed", "WARNING": "warning", "ERROR": "failed"}
+    data = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "envguard_version": __version__,
+        "command": "doctor",
+        "status": status_map.get(report.overall_status, "warning"),
+        "summary": {
+            "passed": report.passed_count,
+            "warnings": report.warning_count,
+            "errors": report.error_count,
+            "total": len(report.checks),
+        },
+        "checks": [
+            {
+                "name": c.name,
+                "status": c.status,
+                "details": c.details,
+                "recommendation": c.recommendation,
+            }
+            for c in report.checks
+        ],
+    }
+    print_json(data)
+
+
+def render_explain_json(pattern: Pattern) -> None:
+    """Output rule explanation in structured JSON format."""
+    data = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "envguard_version": __version__,
+        "command": "explain",
+        "status": "passed",
+        "rule": {
+            "id": pattern.id,
+            "name": pattern.name,
+            "severity": pattern.severity,
+            "enabled": pattern.enabled,
+            "description": pattern.description,
+            "detects": getattr(pattern, "detects", pattern.description),
+            "why_it_matters": getattr(pattern, "why_it_matters", ""),
+            "remediation": getattr(pattern, "remediation", ""),
+        },
+    }
+    print_json(data)
+
+
+def render_rules_json(patterns: List[Pattern]) -> None:
+    """Output rules list in structured JSON format."""
+    data = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "envguard_version": __version__,
+        "command": "rules",
+        "status": "passed",
+        "total_rules": len(patterns),
+        "rules": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "severity": p.severity,
+                "enabled": p.enabled,
+                "description": p.description,
+                "detects": getattr(p, "detects", p.description),
+                "why_it_matters": getattr(p, "why_it_matters", ""),
+                "remediation": getattr(p, "remediation", ""),
+            }
+            for p in patterns
+        ],
+    }
+    print_json(data)
+
+
 # --------------------------------------------------------------------------
 # Terminal Presentation Functions (Rich-Powered UI)
 # --------------------------------------------------------------------------
@@ -267,12 +368,16 @@ def print_scan_findings(
     med_count = sum(1 for f in findings if f.severity == "MEDIUM")
     low_count = sum(1 for f in findings if f.severity == "LOW")
 
+    breakdown_parts = [
+        f"[bold red]{high_count} HIGH[/bold red]",
+        f"[bold yellow]{med_count} MEDIUM[/bold yellow]",
+        f"[bold blue]{low_count} LOW[/bold blue]",
+    ]
+    if stats and stats.get("suppressed_count", 0) > 0:
+        breakdown_parts.append(f"[dim]{stats['suppressed_count']} suppressed[/dim]")
+
     console.print()
-    console.print(
-        f"[bold]Breakdown:[/bold] [bold red]{high_count} HIGH[/bold red]  •  "
-        f"[bold yellow]{med_count} MEDIUM[/bold yellow]  •  "
-        f"[bold blue]{low_count} LOW[/bold blue]"
-    )
+    console.print(f"[bold]Breakdown:[/bold] {'  •  '.join(breakdown_parts)}")
     console.print()
 
 
@@ -568,4 +673,138 @@ def print_hook_installed(message: str) -> None:
             padding=(0, 2),
         )
     )
+    console.print()
+
+
+def print_init_result(result: InitResult) -> None:
+    """Display initialization status for configuration and ignore files."""
+    table = Table(
+        title="[bold]EnvGuard Initialization[/bold]",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        expand=False,
+    )
+    table.add_column("File", style="bold", min_width=20)
+    table.add_column("Status", min_width=20)
+    table.add_column("Path")
+
+    # Config row
+    if result.config_created:
+        config_status = "[bold green]Created[/bold green]"
+    else:
+        config_status = "[yellow]Already Exists[/yellow]"
+    table.add_row(".envguard.yml", config_status, result.config_path)
+
+    # Ignore row
+    if result.ignore_created:
+        ignore_status = "[bold green]Created[/bold green]"
+    else:
+        ignore_status = "[yellow]Already Exists[/yellow]"
+    table.add_row(".envguardignore", ignore_status, result.ignore_path)
+
+    console.print()
+    console.print(table)
+    console.print()
+    console.print("[dim]Edit .envguard.yml to configure scan thresholds and .envguardignore to exclude files.[/dim]")
+    console.print()
+
+
+def print_diagnostics(report: DiagnosticReport) -> None:
+    """Display system diagnostics and doctor check recommendations."""
+    table = Table(
+        title="[bold]EnvGuard Diagnostics (Doctor)[/bold]",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        expand=False,
+    )
+    table.add_column("Check", style="bold", min_width=22)
+    table.add_column("Status", justify="center", min_width=12)
+    table.add_column("Details")
+
+    for c in report.checks:
+        if c.status == "PASS":
+            status_text = "[bold green]PASS[/bold green]"
+        elif c.status == "WARNING":
+            status_text = "[bold yellow]WARNING[/bold yellow]"
+        else:
+            status_text = "[bold red]ERROR[/bold red]"
+
+        detail_text = c.details
+        if c.recommendation:
+            detail_text += f"\n[dim]Recommendation: {c.recommendation}[/dim]"
+
+        table.add_row(c.name, status_text, detail_text)
+
+    console.print()
+    console.print(table)
+
+    summary_text = (
+        f"[bold]Summary:[/bold] "
+        f"[green]{report.passed_count} Passed[/green]  •  "
+        f"[yellow]{report.warning_count} Warnings[/yellow]  •  "
+        f"[red]{report.error_count} Errors[/red]"
+    )
+    console.print()
+    console.print(summary_text)
+    console.print()
+
+
+def print_rule_explanation(pattern: Pattern) -> None:
+    """Display detailed rule explanation with background and remediation."""
+    table = Table(box=box.ROUNDED, show_header=False, expand=False)
+    table.add_column("Property", style="bold cyan", min_width=16)
+    table.add_column("Value")
+
+    table.add_row("Rule ID", f"[bold]{pattern.id}[/bold]")
+    table.add_row("Name", pattern.name)
+    table.add_row("Severity", format_severity(pattern.severity))
+    table.add_row("State", "[green]Enabled[/green]" if pattern.enabled else "[red]Disabled[/red]")
+    table.add_row("Regex", f"[dim]{pattern.regex}[/dim]")
+    table.add_row("Detects", getattr(pattern, "detects", pattern.description))
+    table.add_row("Why it matters", getattr(pattern, "why_it_matters", "Security hazard"))
+    table.add_row("Remediation", getattr(pattern, "remediation", "Move secret to environment variable"))
+
+    console.print()
+    console.print(
+        Panel(
+            table,
+            title=f"[bold]Rule Explanation: {pattern.id}[/bold]",
+            border_style="cyan",
+            box=box.ROUNDED,
+            expand=False,
+            padding=(0, 1),
+        )
+    )
+    console.print()
+
+
+def print_rules_list(patterns: List[Pattern]) -> None:
+    """Display catalog of all configured detection rules."""
+    table = Table(
+        title="[bold]EnvGuard Detection Rules[/bold]",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        expand=False,
+    )
+    table.add_column("Rule ID", style="bold", min_width=22)
+    table.add_column("Severity", justify="center", min_width=10)
+    table.add_column("State", justify="center", min_width=10)
+    table.add_column("Description")
+
+    for p in patterns:
+        state_text = "[green]Enabled[/green]" if p.enabled else "[dim red]Disabled[/dim red]"
+        table.add_row(
+            p.id,
+            format_severity(p.severity),
+            state_text,
+            p.description,
+        )
+
+    console.print()
+    console.print(table)
+    console.print()
+    console.print(f"[dim]Total rules: {len(patterns)} | Use 'envguard explain <rule-id>' for details.[/dim]")
     console.print()

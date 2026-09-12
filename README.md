@@ -6,9 +6,9 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/version-0.2.5-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
+[![Release](https://img.shields.io/badge/version-0.3.0-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
-[![Tests](https://img.shields.io/badge/tests-47%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-57%20passed-brightgreen.svg)](#testing)
 
 <p>
   <a href="#why-envguard">Why EnvGuard</a> ·
@@ -68,7 +68,7 @@ All secret detection, line-by-line streaming, and SHA-256 baseline fingerprintin
 
 **Option 1 — From wheel**
 ```bash
-pip install dist/envguard-0.2.5-py3-none-any.whl
+pip install dist/envguard-0.3.0-py3-none-any.whl
 ```
 
 **Option 2 — Editable / developer mode**
@@ -81,7 +81,7 @@ pip install -e .
 Verify the install:
 ```bash
 envguard --version
-# EnvGuard version 0.2.5
+# EnvGuard version 0.3.0
 ```
 
 Works identically in cmd, PowerShell, and Unix shells.
@@ -234,6 +234,55 @@ Computes in-memory SHA-256 fingerprints. Subsequent scans suppress baseline find
 
 ---
 
+### 7. `envguard init`
+Initializes starter configuration (`.envguard.yml`) and ignore (`.envguardignore`) files safely without overwriting existing settings.
+```bash
+envguard init
+envguard init --format json
+```
+
+---
+
+### 8. `envguard doctor`
+Runs comprehensive system diagnostics (Python, Git, rules, configuration, pre-commit hook, ignore setup, baseline validity).
+```bash
+envguard doctor
+envguard doctor --format json
+```
+
+---
+
+### 9. `envguard explain` & `envguard rules list`
+Inspects built-in rules, explaining why they exist, severity, and remediation guidance.
+```bash
+envguard explain aws-access-key
+envguard rules list
+envguard rules list --format json
+```
+
+---
+
+### 10. Inline Suppressions
+Suppress intentional test secrets or fixtures directly in code using standard comment directives:
+```python
+# Suppress all rules on this line:
+api_key = "AKIAIOSFODNN7EXAMPLE"  # envguard: ignore
+
+# Suppress specific rule on this line:
+password = "secretpass123"  # envguard: ignore=password-assignment
+
+# Suppress all rules on next line:
+# envguard: ignore-next-line
+secret_token = "ghp_123456789012345678901234567890123456"
+
+# Suppress specific rule on next line:
+# envguard: ignore-next-line=stripe-secret-key
+stripe_key = "sk_test_51MockedKeyForTestingPurposes00"
+```
+Supported comment formats: `#` (Python, Bash, YAML), `//` (JS, TS, Go, Java, C++), `/* ... */`.
+
+---
+
 ## Interactive Console
 
 Run `envguard menu` (or simply `envguard`) for the interactive console, or `envguard ui` to open it in a dedicated window:
@@ -250,7 +299,7 @@ Run `envguard menu` (or simply `envguard`) for the interactive console, or `envg
 
 Project:         my-project
 Path:            C:\Projects\my-project
-EnvGuard:        v0.2.5
+EnvGuard:        v0.3.0
 Git Repository:  Detected
 
 ┌─────────── Select an Option ────────────┐
@@ -261,6 +310,8 @@ Git Repository:  Detected
 │   [5]    Install Pre-Commit Hook        │
 │   [6]    Create / Update Baseline       │
 │   [7]    Run Safe Secret Leak Demo      │
+│   [8]    Initialize Project             │
+│   [9]    Run Doctor Diagnostics         │
 │   [0]    Exit                           │
 └─────────────────────────────────────────┘
 
@@ -433,8 +484,8 @@ tests/test_ui.py::test_interactive_menu_baseline_option PASSED
 |---|---|:---:|
 | v0.1.0 | MVP | Complete |
 | v0.2.0 | Open-source foundation | Complete |
-| **v0.2.5** | **Rich terminal UI & Developer experience upgrade** | **Current Release ✅** |
-| v0.3.0 | Developer experience & auto-remediation | Planned |
+| v0.2.5 | Rich terminal UI upgrade | Complete |
+| **v0.3.0** | **Smart Developer Workflow (Ignore, Suppressions, Doctor, Init, Explain)** | **Current Release ✅** |
 | v0.4.0 | Advanced detection (entropy, JWT, cloud providers) | Planned |
 | v0.5.0 | CI/CD & GitHub ecosystem action | Planned |
 | v0.6.0 | Team/project workflows & multi-repo policies | Planned |

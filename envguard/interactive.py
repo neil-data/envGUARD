@@ -25,14 +25,20 @@ from envguard.git_handler import (
     is_git_repo,
     run_git_command,
 )
+from envguard.diagnostics import run_diagnostics
 from envguard.hook import install_pre_commit_hook, is_hook_installed
+from envguard.initializer import init_project
 from envguard.patterns import load_default_patterns
 from envguard.reporter import (
     console,
     print_blocked_commit,
     print_check_passed,
+    print_diagnostics,
     print_diff_report,
     print_hook_installed,
+    print_init_result,
+    print_rule_explanation,
+    print_rules_list,
     print_scan_findings,
     print_status_dashboard,
 )
@@ -307,6 +313,31 @@ def run_safe_demo_action() -> None:
             console.print("[green]✓ Demo environment cleaned safely[/green]")
 
 
+def run_init_action(cwd: Path) -> None:
+    """Initialize repository configuration and ignore files."""
+    console.print(f"\n[bold cyan]▶ Initializing EnvGuard in {cwd}...[/bold cyan]\n")
+    res = init_project(cwd)
+    print_init_result(res)
+
+
+def run_doctor_action(cwd: Path) -> None:
+    """Run diagnostics checks."""
+    console.print(f"\n[bold cyan]▶ Running EnvGuard Doctor on {cwd}...[/bold cyan]\n")
+    report = run_diagnostics(cwd)
+    print_diagnostics(report)
+
+
+def run_rules_action() -> None:
+    """List detection rules."""
+    console.print("\n[bold cyan]▶ Catalog of EnvGuard Detection Rules...[/bold cyan]\n")
+    config = load_config()
+    patterns = load_default_patterns(
+        disabled_rules=config.disabled_rules,
+        severity_overrides=config.severity_overrides,
+    )
+    print_rules_list(patterns)
+
+
 def display_menu_options(cwd: Path) -> None:
     """Render the interactive menu table."""
     is_git = is_git_repo(cwd)
@@ -326,6 +357,8 @@ def display_menu_options(cwd: Path) -> None:
     menu_table.add_row("[5]", "Install Pre-Commit Hook")
     menu_table.add_row("[6]", "Create / Update Baseline")
     menu_table.add_row("[7]", "Run Safe Secret Leak Demo")
+    menu_table.add_row("[8]", "Initialize Project (.envguard.yml / .envguardignore)")
+    menu_table.add_row("[9]", "Run System Doctor Diagnostics")
     menu_table.add_row("[0]", "Exit")
 
     console.print(
@@ -371,11 +404,17 @@ def launch_interactive_menu() -> None:
             elif choice == "7":
                 run_safe_demo_action()
                 pause_prompt()
+            elif choice == "8":
+                run_init_action(cwd)
+                pause_prompt()
+            elif choice == "9":
+                run_doctor_action(cwd)
+                pause_prompt()
             elif choice in ("0", "q", "exit"):
                 console.print("\n[green]Goodbye! Stay safe.[/green]\n")
                 sys.exit(0)
             else:
-                console.print(f"\n[bold yellow]Invalid option '{choice}'. Please select 0-7.[/bold yellow]")
+                console.print(f"\n[bold yellow]Invalid option '{choice}'. Please select 0-9.[/bold yellow]")
                 pause_prompt()
         except (KeyboardInterrupt, EOFError):
             console.print("\n\n[yellow]Exiting EnvGuard...[/yellow]\n")

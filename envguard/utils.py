@@ -9,23 +9,53 @@ PLACEHOLDER_WORDS = {
     "your_api_key",
     "your-api-key",
     "yourapikey",
+    "your_api_key_here",
+    "your-api-key-here",
+    "your_key",
+    "your-key",
+    "your_key_here",
+    "your-key-here",
+    "yourkeyhere",
     "your_secret",
     "your-secret",
     "yoursecret",
+    "your_secret_here",
+    "your-secret-here",
     "your_password",
     "your-password",
     "yourpassword",
+    "your_password_here",
+    "your-password-here",
     "changeme",
     "change_me",
     "change-me",
+    "replace_me",
+    "replace-me",
+    "replaceme",
     "example",
+    "example_key",
+    "example-key",
+    "examplekey",
     "placeholder",
     "sample",
+    "sample_key",
+    "sample-key",
     "test",
     "testing",
+    "test_key",
+    "test-key",
+    "testkey",
     "fake",
+    "fake_key",
+    "fake-key",
+    "fakekey",
     "dummy",
+    "dummy_key",
+    "dummy-key",
+    "dummykey",
     "mock",
+    "mock_key",
+    "mock-key",
     "default",
     "secret",
     "password",
@@ -39,6 +69,8 @@ PLACEHOLDER_WORDS = {
     "undefined",
     "true",
     "false",
+    "todo",
+    "fixme",
 }
 
 
@@ -109,14 +141,24 @@ def is_placeholder(value: str) -> bool:
         or (lower.startswith("{") and lower.endswith("}"))
         or (lower.startswith("${") and lower.endswith("}"))
     ):
-        return True
+        inner = lower.strip("<>[]{}").strip("$")
+        if inner in PLACEHOLDER_WORDS or any(p in inner for p in ("key", "secret", "password", "token")):
+            return True
 
-    # Check if string contains obvious placeholder prefixes
+    # Check if string contains obvious placeholder prefixes or suffixes
     if any(
         lower.startswith(prefix)
-        for prefix in ("your_", "your-", "enter_", "enter-", "sample_", "test_")
+        for prefix in ("your_", "your-", "enter_", "enter-", "sample_", "test_", "fake_", "fake-", "dummy_", "dummy-", "example_", "example-")
     ):
         return True
+
+    if lower.endswith("_here") or lower.endswith("-here") or lower.endswith("_key_here") or lower.endswith("-key-here"):
+        return True
+
+    # Check for placeholder phrases inside string
+    for phrase in ("replace_me", "replace-me", "replaceme", "change_me", "changeme", "your_api_key", "your_key", "example_key", "dummy_key", "fake_key"):
+        if phrase in lower:
+            return True
 
     # Check for all repeating single characters (e.g. 'xxxxxxxxx', '00000000')
     if len(set(lower)) <= 1:

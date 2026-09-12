@@ -42,18 +42,28 @@ from envguard.git_handler import (
     is_env_tracked,
     is_git_repo,
 )
+from envguard.diagnostics import run_diagnostics
 from envguard.hook import install_pre_commit_hook, is_hook_installed
+from envguard.initializer import init_project
 from envguard.patterns import load_default_patterns
 from envguard.reporter import (
     console,
     print_blocked_commit,
     print_check_passed,
+    print_diagnostics,
     print_diff_report,
     print_hook_installed,
+    print_init_result,
+    print_rule_explanation,
+    print_rules_list,
     print_scan_findings,
     print_status_dashboard,
     render_check_json,
     render_diff_json,
+    render_doctor_json,
+    render_explain_json,
+    render_init_json,
+    render_rules_json,
     render_scan_json,
     render_status_json,
 )
@@ -610,6 +620,172 @@ def baseline_create_cmd(ctx: click.Context, path: Path, output_path: Path, overw
             )
         )
         console.print()
+        sys.exit(0)
+    except EnvGuardError as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+    except Exception as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+
+
+
+@main.command(name="init")
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    default=".",
+    help="Target repository directory (defaults to current directory).",
+)
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default=None,
+    help="Output format: 'text' (default) or 'json'.",
+)
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
+@click.pass_context
+def init_cmd(ctx: click.Context, path: Path, output_format: Optional[str], verbose: bool) -> None:
+    """Initialize EnvGuard configuration (.envguard.yml) and ignore file (.envguardignore)."""
+    is_verbose = verbose or ctx.obj.get("VERBOSE", False)
+    target_format = (output_format or ctx.obj.get("FORMAT", "text")).lower()
+    target_dir = path.resolve()
+
+    try:
+        result = init_project(target_dir)
+        if target_format == "json":
+            render_init_json(result)
+        else:
+            print_init_result(result)
+        sys.exit(0)
+    except EnvGuardError as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+    except Exception as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+
+
+@main.command(name="doctor")
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    default=".",
+    help="Target repository directory (defaults to current directory).",
+)
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default=None,
+    help="Output format: 'text' (default) or 'json'.",
+)
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
+@click.pass_context
+def doctor_cmd(ctx: click.Context, path: Path, output_format: Optional[str], verbose: bool) -> None:
+    """Diagnose EnvGuard environment, configuration, tools, and hooks."""
+    is_verbose = verbose or ctx.obj.get("VERBOSE", False)
+    target_format = (output_format or ctx.obj.get("FORMAT", "text")).lower()
+    target_dir = path.resolve()
+
+    try:
+        report = run_diagnostics(target_dir)
+        if target_format == "json":
+            render_doctor_json(report)
+        else:
+            print_diagnostics(report)
+
+        if report.overall_status == "ERROR":
+            sys.exit(1)
+        sys.exit(0)
+    except EnvGuardError as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+    except Exception as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+
+
+@main.command(name="explain")
+@click.argument("rule_id", required=True)
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default=None,
+    help="Output format: 'text' (default) or 'json'.",
+)
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
+@click.pass_context
+def explain_cmd(ctx: click.Context, rule_id: str, output_format: Optional[str], verbose: bool) -> None:
+    """Explain why a detection rule exists, its severity, and remediation guidance."""
+    is_verbose = verbose or ctx.obj.get("VERBOSE", False)
+    target_format = (output_format or ctx.obj.get("FORMAT", "text")).lower()
+
+    try:
+        patterns = load_default_patterns()
+        clean_id = rule_id.strip().lower()
+        matched_pattern = next((p for p in patterns if p.id.lower() == clean_id), None)
+
+        if not matched_pattern:
+            if target_format == "json":
+                render_check_json([], [])  # Or error
+            console.print()
+            console.print(create_error_panel("UNKNOWN RULE", f"Rule ID '{rule_id}' was not found in registered rules.\nRun 'envguard rules list' to see all rules."))
+            console.print()
+            sys.exit(3)
+
+        if target_format == "json":
+            render_explain_json(matched_pattern)
+        else:
+            print_rule_explanation(matched_pattern)
+        sys.exit(0)
+    except EnvGuardError as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+    except Exception as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+
+
+@main.group(name="rules")
+def rules_group() -> None:
+    """Inspect and list EnvGuard detection rules."""
+    pass
+
+
+@rules_group.command(name="list")
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default=None,
+    help="Output format: 'text' (default) or 'json'.",
+)
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
+@click.pass_context
+def rules_list_cmd(ctx: click.Context, output_format: Optional[str], verbose: bool) -> None:
+    """List all available EnvGuard detection rules."""
+    is_verbose = verbose or ctx.obj.get("VERBOSE", False)
+    target_format = (output_format or ctx.obj.get("FORMAT", "text")).lower()
+
+    try:
+        config = load_config()
+        patterns = load_default_patterns(
+            disabled_rules=config.disabled_rules,
+            severity_overrides=config.severity_overrides,
+        )
+        if target_format == "json":
+            render_rules_json(patterns)
+        else:
+            print_rules_list(patterns)
         sys.exit(0)
     except EnvGuardError as e:
         handle_cli_error(e, verbose=is_verbose)

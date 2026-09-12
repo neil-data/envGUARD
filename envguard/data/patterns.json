@@ -5,84 +5,120 @@
       "name": "AWS Access Key",
       "regex": "\\bAKIA[0-9A-Z]{16}\\b",
       "severity": "HIGH",
-      "description": "AWS Access Key ID format (AKIA followed by 16 alphanumeric characters)"
+      "description": "AWS Access Key ID format (AKIA followed by 16 alphanumeric characters)",
+      "detects": "Amazon Web Services IAM user access key IDs",
+      "why_it_matters": "Compromised AWS keys allow unauthorized access to cloud infrastructure, data stores, and billing.",
+      "remediation": "Rotate key immediately in AWS IAM console, check CloudTrail logs for unauthorized activity, and store key in an environment variable or secrets manager."
     },
     {
       "id": "github-token",
       "name": "GitHub Personal Access Token",
       "regex": "\\b(?:ghp_[a-zA-Z0-9]{30,40}|github_pat_[a-zA-Z0-9_]{22,})\\b",
       "severity": "HIGH",
-      "description": "GitHub Personal Access Token (classic ghp_ or fine-grained github_pat_)"
+      "description": "GitHub Personal Access Token (classic ghp_ or fine-grained github_pat_)",
+      "detects": "GitHub Personal Access Tokens (ghp_ or github_pat_)",
+      "why_it_matters": "Grants API and repository access depending on token scopes, risking code tampering or repository leaks.",
+      "remediation": "Revoke token immediately in GitHub Settings -> Developer settings -> Personal access tokens, then generate a new token with minimal scopes."
     },
     {
       "id": "stripe-secret-key",
       "name": "Stripe Secret Key",
       "regex": "\\b(?:sk|rk)_(?:live|test)_[a-zA-Z0-9]{24,}\\b",
       "severity": "HIGH",
-      "description": "Stripe Secret or Restricted API Key"
+      "description": "Stripe Secret or Restricted API Key",
+      "detects": "Stripe live or test secret keys and restricted keys",
+      "why_it_matters": "Allows full or scoped access to payment processing, customer details, refunds, and financial transactions.",
+      "remediation": "Roll key immediately in the Stripe Dashboard (Developers -> API keys) and verify webhook / charge events."
     },
     {
       "id": "pem-private-key",
       "name": "Private Key",
       "regex": "-----BEGIN (?:[A-Z0-9_-]+ )?PRIVATE KEY-----",
       "severity": "HIGH",
-      "description": "OpenSSL / PEM Private Key header"
+      "description": "OpenSSL / PEM Private Key header",
+      "detects": "PEM formatted RSA, DSA, EC, or OpenSSL private keys",
+      "why_it_matters": "Compromising a private key compromises the entire cryptographic identity, allowing impersonation or decryption.",
+      "remediation": "Generate a new keypair immediately, replace certificates or SSH authorized_keys on servers, and delete the exposed key."
     },
     {
       "id": "api-key-assignment",
       "name": "API Key Assignment",
       "regex": "(?i)(?:api_key|apikey)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{16,})['\"]?",
       "severity": "MEDIUM",
-      "description": "Variable assignment containing API_KEY with a non-trivial value"
+      "description": "Variable assignment containing API_KEY with a non-trivial value",
+      "detects": "Hardcoded assignments to api_key or apikey variables with realistic token lengths",
+      "why_it_matters": "Hardcoded API keys can be scraped from git repositories or build artifacts and abused by attackers.",
+      "remediation": "Move the key to a .env file (added to .gitignore) or retrieve it from an environment variable at runtime."
     },
     {
       "id": "secret-assignment",
       "name": "Secret Assignment",
       "regex": "(?i)(?:secret|client_secret)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{16,})['\"]?",
       "severity": "MEDIUM",
-      "description": "Variable assignment containing SECRET or CLIENT_SECRET with a non-trivial value"
+      "description": "Variable assignment containing SECRET or CLIENT_SECRET with a non-trivial value",
+      "detects": "Hardcoded assignments to secret or client_secret variables",
+      "why_it_matters": "OAuth client secrets or application secrets allow impersonating application services and auth flows.",
+      "remediation": "Store secrets in an environment variable or secure secrets manager."
     },
     {
       "id": "secret-key-assignment",
       "name": "Secret Key Assignment",
       "regex": "(?i)(?:secret_key|secretkey)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{16,})['\"]?",
       "severity": "MEDIUM",
-      "description": "Variable assignment containing SECRET_KEY with a non-trivial value"
+      "description": "Variable assignment containing SECRET_KEY with a non-trivial value",
+      "detects": "Hardcoded assignments to secret_key variables (e.g. Django/Flask SECRET_KEY)",
+      "why_it_matters": "Framework secret keys sign session cookies; exposure enables session forgery and remote code execution.",
+      "remediation": "Generate a fresh random secret key and inject it through an environment variable."
     },
     {
       "id": "password-assignment",
       "name": "Password Assignment",
       "regex": "(?i)(?:password|passwd|pwd)\\s*[:=]\\s*['\"]?([^\\s'\"#]{8,})['\"]?",
       "severity": "MEDIUM",
-      "description": "Variable assignment containing PASSWORD or PWD with a non-trivial value"
+      "description": "Variable assignment containing PASSWORD or PWD with a non-trivial value",
+      "detects": "Hardcoded plaintext passwords assigned to password, passwd, or pwd variables",
+      "why_it_matters": "Plaintext passwords in source code expose user or service accounts to unauthorized access.",
+      "remediation": "Change the password immediately and load credentials from environment variables or vault."
     },
     {
       "id": "db-password-assignment",
       "name": "Database Password Assignment",
       "regex": "(?i)(?:database_password|db_password|db_pass)\\s*[:=]\\s*['\"]?([^\\s'\"#]{6,})['\"]?",
       "severity": "MEDIUM",
-      "description": "Variable assignment containing DATABASE_PASSWORD with a non-trivial value"
+      "description": "Variable assignment containing DATABASE_PASSWORD with a non-trivial value",
+      "detects": "Hardcoded database passwords in configuration files or code",
+      "why_it_matters": "Database access allows direct data exfiltration, tampering, or ransomware encryption.",
+      "remediation": "Rotate the database password immediately and inject database credentials via environment variables."
     },
     {
       "id": "token-assignment",
       "name": "Token Assignment",
       "regex": "(?i)(?:token|auth_token|access_token)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{16,})['\"]?",
       "severity": "MEDIUM",
-      "description": "Variable assignment containing TOKEN or AUTH_TOKEN with a non-trivial value"
+      "description": "Variable assignment containing TOKEN or AUTH_TOKEN with a non-trivial value",
+      "detects": "Hardcoded authentication or access tokens assigned in source code",
+      "why_it_matters": "Hardcoded authentication tokens grant direct access to APIs and internal services.",
+      "remediation": "Invalidate token, regenerate it, and pass it dynamically via runtime environment variables."
     },
     {
       "id": "generic-credential",
       "name": "Generic Credential Assignment",
       "regex": "(?i)(?:credential|credentials)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{8,15})['\"]?",
       "severity": "LOW",
-      "description": "Variable assignment referencing credentials with potential secret"
+      "description": "Variable assignment referencing credentials with potential secret",
+      "detects": "Short assignments to credential variables that may represent sensitive strings",
+      "why_it_matters": "Generic credential strings may leak internal credentials or testing secrets.",
+      "remediation": "Verify if the value is sensitive. If sensitive, move to .env; if intentional test fixture, add inline suppression."
     },
     {
       "id": "generic-secret",
       "name": "Generic Secret Assignment",
       "regex": "(?i)(?:key)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{10,15})['\"]?",
       "severity": "LOW",
-      "description": "Variable assignment referencing key with potential secret"
+      "description": "Variable assignment referencing key with potential secret",
+      "detects": "Short assignments to key variables that may represent API or service keys",
+      "why_it_matters": "Generic keys may be valid tokens for third-party or internal services.",
+      "remediation": "Verify if the value is sensitive. If sensitive, move to .env; if placeholder, use recognized placeholder syntax."
     }
   ]
 }

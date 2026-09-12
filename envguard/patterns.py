@@ -18,6 +18,9 @@ class Pattern:
     compiled: re.Pattern
     severity: str  # "HIGH", "MEDIUM", "LOW"
     description: str = ""
+    detects: str = ""
+    why_it_matters: str = ""
+    remediation: str = ""
     enabled: bool = True
 
     @property
@@ -91,6 +94,9 @@ def parse_patterns_from_dict(
             # Support both severity and legacy confidence
             severity = overrides.get(rule_id, item.get("severity") or item.get("confidence", "MEDIUM")).upper()
             description = item.get("description", "")
+            detects = item.get("detects", description)
+            why_it_matters = item.get("why_it_matters", "")
+            remediation = item.get("remediation", "")
             enabled = rule_id not in disabled
 
             if not pattern_str:
@@ -105,6 +111,9 @@ def parse_patterns_from_dict(
                     compiled=compiled,
                     severity=severity,
                     description=description,
+                    detects=detects,
+                    why_it_matters=why_it_matters,
+                    remediation=remediation,
                     enabled=enabled,
                 )
             )

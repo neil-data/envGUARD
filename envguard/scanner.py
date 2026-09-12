@@ -8,22 +8,21 @@ from typing import Dict, List, Optional, Set, Tuple
 import pathspec
 
 from envguard.git_handler import get_staged_file_bytes, get_staged_files
+from envguard.ignore import (
+    BUILTIN_IGNORED_DIRS,
+    is_path_ignored,
+    load_envguardignore,
+    should_ignore_dir,
+)
 from envguard.patterns import Pattern, load_default_patterns
+from envguard.suppression import (
+    SuppressionManager,
+    parse_suppressions_from_lines,
+    parse_suppressions_from_text,
+)
 from envguard.utils import is_binary_bytes, is_binary_file, mask_secret
 
-IGNORED_DIRECTORIES: Set[str] = {
-    ".git",
-    "venv",
-    ".venv",
-    "node_modules",
-    "__pycache__",
-    ".pytest_cache",
-    ".idea",
-    ".vscode",
-    "dist",
-    "build",
-    "egg-info",
-}
+IGNORED_DIRECTORIES: Set[str] = BUILTIN_IGNORED_DIRS
 
 DEFAULT_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 
@@ -50,6 +49,7 @@ class ScanFinding:
     masked_value: str
     fingerprint: str
     line_snippet: str = ""
+    detection_signals: List[str] = field(default_factory=list)
 
     @property
     def confidence(self) -> str:
@@ -79,10 +79,18 @@ class ScanReport:
     total_files_scanned: int = 0
 
 
-def scan_text(text: str, file_path_str: str, patterns: List[Pattern]) -> List[ScanFinding]:
+def scan_text(
+    text: str,
+    file_path_str: str,
+    patterns: List[Pattern],
+    suppression_mgr: Optional[SuppressionManager] = None,
+    stats: Optional[Dict[str, int]] = None,
+) -> List[ScanFinding]:
     """Scan string content line by line using provided patterns."""
     findings: List[ScanFinding] = []
     lines = text.splitlines()
+    if suppression_mgr is None:
+        suppression_mgr = parse_suppressions_from_lines(lines)
 
     for line_idx, line in enumerate(lines, start=1):
         stripped = line.strip()
@@ -94,6 +102,12 @@ def scan_text(text: str, file_path_str: str, patterns: List[Pattern]) -> List[Sc
                 continue
 
             for secret_val, start, end in pattern.find_matches(line):
+                # Check inline suppression
+                if suppression_mgr and suppression_mgr.is_suppressed(line_idx, pattern.id):
+                    if stats is not None:
+                        stats["suppressed_count"] = stats.get("suppressed_count", 0) + 1
+                    continue
+
                 fp = compute_fingerprint(pattern.id, file_path_str, secret_val)
                 findings.append(
                     ScanFinding(
@@ -139,6 +153,7 @@ def scan_file_streaming(
     rel_path_str: str,
     patterns: List[Pattern],
     max_file_size_bytes: int = DEFAULT_MAX_BYTES,
+    stats: Optional[Dict[str, int]] = None,
 ) -> Tuple[List[ScanFinding], Optional[str]]:
     """Scan a single file line by line without loading the entire file into memory.
 
@@ -154,32 +169,42 @@ def scan_file_streaming(
         if is_binary_file(file_path):
             return [], "binary"
 
-        findings: List[ScanFinding] = []
         with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-            for line_idx, line in enumerate(f, start=1):
-                stripped = line.strip()
-                if not stripped:
+            lines = f.readlines()
+
+        suppression_mgr = parse_suppressions_from_lines(lines)
+        findings: List[ScanFinding] = []
+
+        for line_idx, line in enumerate(lines, start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            for pattern in patterns:
+                if not pattern.enabled:
                     continue
 
-                for pattern in patterns:
-                    if not pattern.enabled:
+                for secret_val, start, end in pattern.find_matches(line):
+                    # Check inline suppression
+                    if suppression_mgr.is_suppressed(line_idx, pattern.id):
+                        if stats is not None:
+                            stats["suppressed_count"] = stats.get("suppressed_count", 0) + 1
                         continue
 
-                    for secret_val, start, end in pattern.find_matches(line):
-                        fp = compute_fingerprint(pattern.id, rel_path_str, secret_val)
-                        findings.append(
-                            ScanFinding(
-                                rule_id=pattern.id,
-                                rule_name=pattern.name,
-                                severity=pattern.severity,
-                                file_path=rel_path_str,
-                                line_number=line_idx,
-                                raw_value=secret_val,
-                                masked_value=mask_secret(secret_val),
-                                fingerprint=fp,
-                                line_snippet=stripped,
-                            )
+                    fp = compute_fingerprint(pattern.id, rel_path_str, secret_val)
+                    findings.append(
+                        ScanFinding(
+                            rule_id=pattern.id,
+                            rule_name=pattern.name,
+                            severity=pattern.severity,
+                            file_path=rel_path_str,
+                            line_number=line_idx,
+                            raw_value=secret_val,
+                            masked_value=mask_secret(secret_val),
+                            fingerprint=fp,
+                            line_snippet=stripped,
                         )
+                    )
         return findings, None
     except Exception as e:
         return [], f"read error: {e}"
@@ -194,13 +219,16 @@ def scan_directory(
     verbose_log: Optional[List[str]] = None,
     stats: Optional[Dict[str, int]] = None,
 ) -> List[ScanFinding]:
-    """Scan current working directory recursively with streaming and size protection."""
+    """Scan current working directory recursively with streaming, .envguardignore, and suppression."""
     if patterns is None:
         patterns = load_default_patterns()
 
     if stats is not None:
         stats.setdefault("files_scanned", 0)
         stats.setdefault("files_skipped", 0)
+        stats.setdefault("suppressed_count", 0)
+        stats.setdefault("ignored_by_envguardignore", 0)
+        stats.setdefault("ignored_by_gitignore", 0)
 
     if directory.is_file():
         findings, skip_reason = scan_file_streaming(
@@ -208,6 +236,7 @@ def scan_directory(
             rel_path_str=directory.name,
             patterns=patterns,
             max_file_size_bytes=max_file_size_bytes,
+            stats=stats,
         )
         if stats is not None:
             if skip_reason:
@@ -216,8 +245,9 @@ def scan_directory(
                 stats["files_scanned"] += 1
         return findings
 
-    spec = load_root_gitignore(directory) if respect_gitignore else None
-    exclude_spec = compile_exclude_spec(exclude_patterns or [])
+    gitignore_spec = load_root_gitignore(directory) if respect_gitignore else None
+    envguardignore_spec = load_envguardignore(directory)
+    config_exclude_spec = compile_exclude_spec(exclude_patterns or [])
 
     all_findings: List[ScanFinding] = []
 
@@ -225,23 +255,19 @@ def scan_directory(
         root_path = Path(root)
 
         # In-place modify dirs to avoid descending into ignored directories
-        dirs[:] = [
-            d for d in dirs
-            if d not in IGNORED_DIRECTORIES and not d.endswith(".egg-info")
-        ]
-
-        # Check gitignore and custom excludes for directory paths
         surviving_dirs = []
         for d in dirs:
             rel_dir = (root_path / d).relative_to(directory).as_posix()
-            dir_posix = f"{rel_dir}/"
-            if spec and spec.match_file(dir_posix):
+            ignored, reason = is_path_ignored(
+                rel_path=rel_dir,
+                gitignore_spec=gitignore_spec,
+                envguardignore_spec=envguardignore_spec,
+                config_exclude_spec=config_exclude_spec,
+                is_dir=True,
+            )
+            if ignored:
                 if verbose_log is not None:
-                    verbose_log.append(f"Skipped gitignored directory: {rel_dir}")
-                continue
-            if exclude_spec and exclude_spec.match_file(dir_posix):
-                if verbose_log is not None:
-                    verbose_log.append(f"Skipped excluded directory: {rel_dir}")
+                    verbose_log.append(f"Skipped {reason} directory: {rel_dir}")
                 continue
             surviving_dirs.append(d)
         dirs[:] = surviving_dirs
@@ -250,18 +276,22 @@ def scan_directory(
             file_path = root_path / filename
             rel_file = file_path.relative_to(directory).as_posix()
 
-            # Check if file is ignored by .gitignore
-            if spec and spec.match_file(rel_file):
+            ignored, reason = is_path_ignored(
+                rel_path=rel_file,
+                gitignore_spec=gitignore_spec,
+                envguardignore_spec=envguardignore_spec,
+                config_exclude_spec=config_exclude_spec,
+                is_dir=False,
+            )
+            if ignored:
                 if stats is not None:
                     stats["files_skipped"] += 1
-                continue
-
-            # Check if file is ignored by custom config exclude
-            if exclude_spec and exclude_spec.match_file(rel_file):
-                if stats is not None:
-                    stats["files_skipped"] += 1
+                    if reason == "envguardignore":
+                        stats["ignored_by_envguardignore"] = stats.get("ignored_by_envguardignore", 0) + 1
+                    elif reason == "gitignore":
+                        stats["ignored_by_gitignore"] = stats.get("ignored_by_gitignore", 0) + 1
                 if verbose_log is not None:
-                    verbose_log.append(f"Skipped excluded file: {rel_file}")
+                    verbose_log.append(f"Skipped ({reason}): {rel_file}")
                 continue
 
             findings, skip_reason = scan_file_streaming(
@@ -269,6 +299,7 @@ def scan_directory(
                 rel_path_str=rel_file,
                 patterns=patterns,
                 max_file_size_bytes=max_file_size_bytes,
+                stats=stats,
             )
 
             if skip_reason:
@@ -290,18 +321,29 @@ def scan_staged(
     patterns: Optional[List[Pattern]] = None,
     max_file_size_bytes: int = DEFAULT_MAX_BYTES,
     exclude_patterns: Optional[List[str]] = None,
+    stats: Optional[Dict[str, int]] = None,
 ) -> List[ScanFinding]:
     """Scan staged files directly from Git index using git show :path."""
     if patterns is None:
         patterns = load_default_patterns()
 
-    exclude_spec = compile_exclude_spec(exclude_patterns or [])
+    target_repo = repo_path or Path.cwd()
+    envguardignore_spec = load_envguardignore(target_repo)
+    config_exclude_spec = compile_exclude_spec(exclude_patterns or [])
     staged_files = get_staged_files(repo_path)
     all_findings: List[ScanFinding] = []
 
     for rel_path in staged_files:
-        # Check custom config exclude
-        if exclude_spec and exclude_spec.match_file(rel_path):
+        ignored, reason = is_path_ignored(
+            rel_path=rel_path,
+            gitignore_spec=None,
+            envguardignore_spec=envguardignore_spec,
+            config_exclude_spec=config_exclude_spec,
+            is_dir=False,
+        )
+        if ignored:
+            if stats is not None and reason == "envguardignore":
+                stats["ignored_by_envguardignore"] = stats.get("ignored_by_envguardignore", 0) + 1
             continue
 
         try:
@@ -317,7 +359,7 @@ def scan_staged(
                 continue
 
             content = raw_bytes.decode("utf-8", errors="replace")
-            findings = scan_text(content, rel_path, patterns)
+            findings = scan_text(content, rel_path, patterns, stats=stats)
             all_findings.extend(findings)
         except Exception:
             # Handle decoding or git errors gracefully for individual files
