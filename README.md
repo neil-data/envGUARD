@@ -68,7 +68,7 @@ All secret detection, line-by-line streaming, and SHA-256 baseline fingerprintin
 
 **Option 1 — From wheel**
 ```bash
-pip install dist/envguard-0.3.0-py3-none-any.whl
+pip install dist/envguard-0.3.1-py3-none-any.whl
 ```
 
 **Option 2 — Editable / developer mode**
