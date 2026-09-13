@@ -6,6 +6,7 @@ multi-signal scoring, JWT validation, Shannon entropy analysis, and false-positi
 
 from dataclasses import dataclass, field
 import hashlib
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 import pathspec
@@ -402,49 +403,73 @@ def scan_directory(
 
     all_findings: List[ScanFinding] = []
 
-    # Sort for deterministic directory traversal order
-    for item in sorted(directory.rglob("*")):
-        if item.is_dir():
-            continue
+    # Traverse directory while pruning ignored subdirectories (node_modules, .git, etc.)
+    for root, dirs, files in os.walk(directory):
+        rel_root = str(Path(root).relative_to(directory)).replace("\\", "/")
 
-        rel_path = str(item.relative_to(directory)).replace("\\", "/")
+        # Prune ignored subdirectories
+        kept_dirs = []
+        for d in sorted(dirs):
+            dir_rel = f"{rel_root}/{d}" if rel_root != "." else d
+            ignored, reason = is_path_ignored(
+                rel_path=dir_rel,
+                gitignore_spec=gitignore_spec,
+                envguardignore_spec=envguardignore_spec,
+                config_exclude_spec=config_exclude_spec,
+                is_dir=True,
+            )
+            if ignored:
+                if stats is not None:
+                    if reason == "envguardignore":
+                        stats["ignored_by_envguardignore"] += 1
+                    elif reason == "gitignore":
+                        stats["ignored_by_gitignore"] += 1
+                if verbose_log is not None:
+                    verbose_log.append(f"Skipped directory {dir_rel}/ ({reason})")
+            else:
+                kept_dirs.append(d)
+        dirs[:] = kept_dirs
 
-        ignored, reason = is_path_ignored(
-            rel_path=rel_path,
-            gitignore_spec=gitignore_spec,
-            envguardignore_spec=envguardignore_spec,
-            config_exclude_spec=config_exclude_spec,
-            is_dir=False,
-        )
+        for filename in sorted(files):
+            item = Path(root) / filename
+            rel_path = f"{rel_root}/{filename}" if rel_root != "." else filename
 
-        if ignored:
-            if stats is not None:
-                if reason == "envguardignore":
-                    stats["ignored_by_envguardignore"] += 1
-                elif reason == "gitignore":
-                    stats["ignored_by_gitignore"] += 1
-            if verbose_log is not None:
-                verbose_log.append(f"Skipped {rel_path} ({reason})")
-            continue
+            ignored, reason = is_path_ignored(
+                rel_path=rel_path,
+                gitignore_spec=gitignore_spec,
+                envguardignore_spec=envguardignore_spec,
+                config_exclude_spec=config_exclude_spec,
+                is_dir=False,
+            )
 
-        findings, skip_reason = scan_file_streaming(
-            file_path=item,
-            rel_path_str=rel_path,
-            patterns=patterns,
-            max_file_size_bytes=max_file_size_bytes,
-            stats=stats,
-            advanced_config=advanced_config,
-        )
+            if ignored:
+                if stats is not None:
+                    if reason == "envguardignore":
+                        stats["ignored_by_envguardignore"] += 1
+                    elif reason == "gitignore":
+                        stats["ignored_by_gitignore"] += 1
+                if verbose_log is not None:
+                    verbose_log.append(f"Skipped {rel_path} ({reason})")
+                continue
 
-        if skip_reason:
-            if stats is not None:
-                stats["files_skipped"] += 1
-            if verbose_log is not None:
-                verbose_log.append(f"Skipped {rel_path} ({skip_reason})")
-        else:
-            if stats is not None:
-                stats["files_scanned"] += 1
-            all_findings.extend(findings)
+            findings, skip_reason = scan_file_streaming(
+                file_path=item,
+                rel_path_str=rel_path,
+                patterns=patterns,
+                max_file_size_bytes=max_file_size_bytes,
+                stats=stats,
+                advanced_config=advanced_config,
+            )
+
+            if skip_reason:
+                if stats is not None:
+                    stats["files_skipped"] += 1
+                if verbose_log is not None:
+                    verbose_log.append(f"Skipped {rel_path} ({skip_reason})")
+            else:
+                if stats is not None:
+                    stats["files_scanned"] += 1
+                all_findings.extend(findings)
 
     return all_findings
 

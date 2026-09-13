@@ -242,12 +242,12 @@ def run_baseline_action(cwd: Path) -> None:
         max_file_size_bytes=config.max_file_size_bytes,
     )
     baseline_path = repo_root / ".envguard-baseline.json"
-    baseline = create_baseline(findings=findings, target_path=baseline_path)
+    count = create_baseline(findings=findings, output_path=baseline_path, overwrite=True)
     console.print()
     console.print(
         Panel(
             f"[bold green]BASELINE RECORDED[/bold green]\n\n"
-            f"Saved [cyan]{len(baseline.fingerprints)}[/cyan] fingerprint(s) to [bold]{baseline_path.name}[/bold].\n"
+            f"Saved [cyan]{count}[/cyan] fingerprint(s) to [bold]{baseline_path.name}[/bold].\n"
             f"Known findings will now be suppressed during scans when using '--baseline'.",
             border_style="green",
             box=box.ROUNDED,

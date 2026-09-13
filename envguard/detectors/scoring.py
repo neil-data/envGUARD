@@ -94,6 +94,8 @@ def score_candidate(candidate: DetectionCandidate) -> ScoredResult:
     final_severity = computed_severity
     if candidate.original_severity:
         final_severity = candidate.original_severity.upper()
+    elif candidate.rule_id == "generic-high-entropy-secret":
+        final_severity = "MEDIUM"
 
     return ScoredResult(
         candidate=candidate,

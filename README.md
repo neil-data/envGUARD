@@ -6,9 +6,9 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/version-0.4.0-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
+[![Release](https://img.shields.io/badge/version-0.4.2-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
-[![Tests](https://img.shields.io/badge/tests-101%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-109%20passed-brightgreen.svg)](#testing)
 
 <p>
   <a href="#why-envguard">Why EnvGuard</a> ·
@@ -69,7 +69,7 @@ All secret detection, line-by-line streaming, and SHA-256 baseline fingerprintin
 
 **Option 1 — From wheel**
 ```bash
-pip install dist/envguard-0.4.0-py3-none-any.whl
+pip install dist/envguard-0.4.2-py3-none-any.whl
 ```
 
 **Option 2 — Editable / developer mode**
@@ -82,7 +82,7 @@ pip install -e .
 Verify the install:
 ```bash
 envguard --version
-# EnvGuard version 0.4.0
+# EnvGuard version 0.4.2
 ```
 
 Works identically in cmd, PowerShell, and Unix shells.
@@ -537,7 +537,8 @@ tests/test_advanced_config.py::test_valid_advanced_detection_config PASSED
 | v0.2.5 | Rich terminal UI upgrade | Complete |
 | v0.3.0 | Smart Developer Workflow (Ignore, Suppressions, Doctor, Init, Explain) | Complete |
 | v0.3.1 | Configuration Stability & Production Reliability Patch | Complete |
-| **v0.4.0** | **Advanced Detection Engine (Entropy, JWT, Expanded Cloud Providers, Context Analysis)** | **Current Release ✅** |
+| v0.4.0 | Advanced Detection Engine (Entropy, JWT, Expanded Cloud Providers, Context Analysis) | Complete |
+| **v0.4.2** | **Stability & Production Diagnostics Patch (Bug Fixes, High-Entropy Code Filtering, Baseline Fixes, Doctor Reliability)** | **Current Release ✅** |
 | v0.5.0 | CI/CD & GitHub ecosystem action | Planned |
 | v0.6.0 | Team/project workflows & multi-repo policies | Planned |
 | v1.0.0 | Stable production release | Target 🚀 |

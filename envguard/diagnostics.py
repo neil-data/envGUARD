@@ -77,7 +77,37 @@ def run_diagnostics(repo_path: Path) -> DiagnosticReport:
     is_git = is_git_repo(repo_path)
     root = get_repo_root(repo_path) or repo_path
     if is_git:
-        report.checks.append(DiagnosticCheck("Git Repository", "PASS", f"Initialized at {root}"))
+        resolved_root = root.resolve()
+        resolved_repo = repo_path.resolve()
+        user_home = Path.home().resolve()
+
+        if resolved_root == user_home:
+            report.checks.append(
+                DiagnosticCheck(
+                    "Git Repository",
+                    "WARNING",
+                    f"Git root is user home directory ({root})",
+                    "Your user home directory is a Git repository. Initialize Git inside the project directory or remove the home .git repository.",
+                )
+            )
+        else:
+            try:
+                rel_parts = resolved_repo.relative_to(resolved_root).parts
+                is_far_above = len(rel_parts) >= 2
+            except ValueError:
+                is_far_above = False
+
+            if is_far_above:
+                report.checks.append(
+                    DiagnosticCheck(
+                        "Git Repository",
+                        "WARNING",
+                        f"Git root is far above current directory ({root})",
+                        "Current directory is nested within a parent Git repository. Consider initializing Git in the project root.",
+                    )
+                )
+            else:
+                report.checks.append(DiagnosticCheck("Git Repository", "PASS", f"Initialized at {root}"))
     else:
         report.checks.append(DiagnosticCheck("Git Repository", "WARNING", "Not a Git repository", "Run 'git init' to enable Git-specific protection."))
 
@@ -110,7 +140,7 @@ def run_diagnostics(repo_path: Path) -> DiagnosticReport:
     elif has_envignore:
         report.checks.append(DiagnosticCheck("Ignore Setup", "PASS", ".envguardignore present (no .gitignore)"))
     else:
-        report.checks.append(DiagnosticCheck("Ignore Setup", "WARNING", "No .gitignore or .envguardignore found", "Create .envguardignore with 'envguard init'."))
+        report.checks.append(DiagnosticCheck("Ignore Setup", "PASS", "No ignore files configured"))
 
     # 8. Pre-commit hook
     if is_git:
@@ -123,8 +153,8 @@ def run_diagnostics(repo_path: Path) -> DiagnosticReport:
     baseline_f = repo_path / ".envguard-baseline.json"
     if baseline_f.is_file():
         try:
-            baseline = load_baseline(repo_path)
-            count = baseline.findings_count()
+            fingerprints = load_baseline(baseline_f)
+            count = len(fingerprints)
             report.checks.append(DiagnosticCheck("Historical Baseline", "PASS", f"present ({count} fingerprints)"))
         except Exception as e:
             report.checks.append(DiagnosticCheck("Historical Baseline", "ERROR", f"Baseline file is corrupt: {e}", "Run 'envguard baseline create' to regenerate."))

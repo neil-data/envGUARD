@@ -50,6 +50,37 @@ def is_generic_hash_or_commit(value: str) -> bool:
     return False
 
 
+def is_code_expression(value: str) -> bool:
+    """Check if value is a code expression (e.g. function call, environment lookup) rather than a literal secret."""
+    clean = value.strip()
+    if not clean:
+        return False
+    # Check for known modules, functions, or runtime calls
+    code_indicators = (
+        "os.environ",
+        "os.getenv",
+        "environ.get",
+        "process.env",
+        "sys.",
+        "re.compile",
+        "config.get",
+        "settings.get",
+        "System.getenv",
+        "getattr(",
+        "lambda ",
+        "${",
+    )
+    if any(ind in clean for ind in code_indicators):
+        return True
+    # Identifier immediately followed by '(' indicating a function or method invocation
+    if re.search(r"[A-Za-z_][A-Za-z0-9_]*\s*\(", clean):
+        return True
+    # Unmatched trailing parenthesis or bracket from split expression
+    if clean.endswith(")") or clean.endswith("]"):
+        return True
+    return False
+
+
 def is_credential_variable(var_name: str) -> bool:
     """Check if a variable name suggests secret or credential storage."""
     clean = var_name.strip().lower()
@@ -85,32 +116,36 @@ def detect_entropy_candidates(
         if is_placeholder(val):
             continue
 
-        # 2. Skip UUIDs
+        # 2. Skip code expressions (e.g. os.environ.get("KEY"), re.compile(...), method calls)
+        if is_code_expression(val):
+            continue
+
+        # 3. Skip UUIDs
         if is_uuid(val):
             continue
 
-        # 3. Skip generic hex hashes unless explicitly in credential context
+        # 4. Skip generic hex hashes unless explicitly in credential context
         context_res = analyze_context(var_name, val)
         if is_generic_hash_or_commit(val) and not context_res.is_credential_context:
             continue
 
-        # 4. Context check: high entropy is only an alert in credential variable contexts
+        # 5. Context check: high entropy is only an alert in credential variable contexts
         # (standalone random strings in code like docstrings, dict keys, or generic variables should not be flagged as secrets)
         if not context_res.is_credential_context and not is_credential_variable(var_name):
             continue
 
-        # 5. Length check
+        # 6. Length check
         if len(val) < config.entropy_min_length:
             continue
 
-        # 5. Shannon entropy check
+        # 7. Shannon entropy check
         entropy = calculate_entropy(val)
         if entropy < config.entropy_threshold:
             continue
 
         signals: List[str] = ["high_entropy", "token_like_length", "non_placeholder_value"]
 
-        # 6. Apply context signals
+        # 8. Apply context signals
         if context_res.signals:
             signals.extend(context_res.signals)
 
@@ -130,6 +165,7 @@ def detect_entropy_candidates(
             entropy_value=entropy,
             rule_id="generic-high-entropy-secret",
             rule_name="High Entropy Secret",
+            original_severity="MEDIUM",
             fingerprint=fp,
             masked_value=masked,
         )

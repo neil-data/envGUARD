@@ -105,13 +105,27 @@ def render_scan_json(
 
 
 def render_check_json(
-    blocking_findings: List[ScanFinding],
-    low_findings: List[ScanFinding],
+    blocking_findings: Optional[List[ScanFinding]] = None,
+    low_findings: Optional[List[ScanFinding]] = None,
     no_staged: bool = False,
+    error: Optional[str] = None,
 ) -> None:
     """Output git check result in structured JSON format."""
-    all_findings = blocking_findings + low_findings
-    status = "failed" if blocking_findings else "passed"
+    if error:
+        data = {
+            "schema_version": JSON_SCHEMA_VERSION,
+            "envguard_version": __version__,
+            "command": "check",
+            "status": "error",
+            "error": error,
+        }
+        print_json(data)
+        return
+
+    blocking = blocking_findings or []
+    low = low_findings or []
+    all_findings = blocking + low
+    status = "failed" if blocking else "passed"
     if no_staged:
         status = "passed"
 

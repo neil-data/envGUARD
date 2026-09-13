@@ -279,8 +279,15 @@ def scan_cmd(ctx: click.Context, path: Path, output_format: str, baseline_path: 
                     )
 
         if is_verbose and verbose_log:
-            for log_entry in verbose_log:
-                console.print(f"[dim]{log_entry}[/dim]")
+            max_entries = 50
+            if len(verbose_log) > max_entries:
+                for log_entry in verbose_log[:max_entries]:
+                    console.print(f"[dim]{log_entry}[/dim]")
+                remaining = len(verbose_log) - max_entries
+                console.print(f"[dim]... and {remaining} more skipped items[/dim]")
+            else:
+                for log_entry in verbose_log:
+                    console.print(f"[dim]{log_entry}[/dim]")
 
         # Baseline resolution
         resolved_baseline = baseline_path
@@ -341,7 +348,7 @@ def check_cmd(ctx: click.Context, output_format: str, baseline_path: Optional[Pa
     if not is_git_repo(cwd):
         err_msg = "Current directory is not a Git repository."
         if output_format.lower() == "json":
-            render_diff_json(None, error=err_msg)
+            render_check_json(error=err_msg)
         else:
             handle_cli_error(GitError(err_msg), verbose=is_verbose)
         sys.exit(2)
