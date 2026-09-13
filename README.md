@@ -21,7 +21,6 @@
   <a href="#roadmap">Roadmap</a>
 </p>
 
-
 </div>
 
 ---
@@ -30,7 +29,7 @@
 
 Secret leaks into Git are one of the most common, preventable security incidents in software development — a misconfigured `.gitignore`, a key pasted into a tracked file, or a commit made before anyone double-checks what's staged. Existing scanners such as Gitleaks and TruffleHog are excellent, but they're built for CI pipelines and security teams, not the moment right before a developer runs `git commit`.
 
-EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable.
+EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable. With v0.5.0, that same protection now extends into CI/CD pipelines and pull requests.
 
 ---
 
@@ -46,7 +45,7 @@ EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that ca
 | Detected secrets transmitted | No |
 | Telemetry by default | No |
 
-All secret detection, line-by-line streaming, and SHA-256 baseline fingerprinting run entirely in local memory on your machine.
+All secret detection, line-by-line streaming, and SHA-256 baseline fingerprinting run entirely in local memory on your machine or CI runner.
 
 ---
 
@@ -87,7 +86,6 @@ envguard --version
 # EnvGuard version 0.5.0
 ```
 
-
 Works identically in cmd, PowerShell, and Unix shells.
 
 ---
@@ -102,19 +100,15 @@ envguard check --format json
 ```
 `HIGH` and `MEDIUM` severity findings block the commit (exit code `1`). `LOW` severity findings warn without blocking (exit code `0`).
 
-#### Blocked Commit Screen:
+#### Blocked Commit Screen
 ```text
 ┌──────────────────────────────────────────────────────────┐
-│                                                          │
 │                 ENVGUARD BLOCKED COMMIT                  │
-│                                                          │
 │ Blocking security findings were detected in staged units │
-│                                                          │
 │            HIGH: 1          MEDIUM: 1                    │
-│                                                          │
 └──────────────────────────────────────────────────────────┘
 
-                  Blocking Staged Findings                  
+                  Blocking Staged Findings
 ┌──────────┬────────────────────┬─────────────┬──────┬───────────────────────┐
 │ Severity │ Rule ID            │ File        │ Line │ Masked Value          │
 ├──────────┼────────────────────┼─────────────┼──────┼───────────────────────┤
@@ -152,7 +146,7 @@ envguard scan --format sarif --output results.sarif
 envguard scan --verbose
 ```
 
-#### Scan Complete Output:
+#### Scan Complete Output
 ```text
 ┌───────────── Scan Complete ─────────────┐
 │ Files scanned: 124                      │
@@ -160,7 +154,7 @@ envguard scan --verbose
 │ Findings: 2                             │
 └─────────────────────────────────────────┘
 
-                      Detected Secrets                      
+                      Detected Secrets
 ┌──────────┬────────────────────┬─────────────┬──────┬───────────────────────┐
 │ Severity │ Rule ID            │ File        │ Line │ Masked Value          │
 ├──────────┼────────────────────┼─────────────┼──────┼───────────────────────┤
@@ -173,7 +167,7 @@ Breakdown: 1 HIGH  •  1 MEDIUM  •  0 LOW
 
 ---
 
-### 3. `envguard ci` (NEW in v0.5.0)
+### 3. `envguard ci` (new in v0.5.0)
 Automated CI/CD security gate designed for pipelines and pull requests.
 ```bash
 # Scan changed files against the default branch (main/master)
@@ -192,22 +186,19 @@ envguard ci --format sarif --output envguard.sarif
 envguard ci --format json --output envguard-report.json
 ```
 
-**Key CI Features:**
-- **Auto-Environment Detection:** Recognizes GitHub Actions, GitLab CI, CircleCI, Azure Pipelines, Jenkins, or generic CI environments.
-- **Git Diff Scanning:** By default, scans only files modified or added between the base branch (`origin/main`, `main`, etc.) and the current commit, keeping CI fast.
-- **GitHub Actions Integration:**
-  - Emits native workflow annotations (`::error::` for HIGH/MEDIUM, `::warning::` for LOW).
-  - Automatically writes a rich Markdown security report into `$GITHUB_STEP_SUMMARY`.
-- **Baseline Awareness:** Automatically suppresses known legacy findings using `.envguard-baseline.json` or `--baseline <path>`.
-- **Zero Plaintext Leaks:** Masked secrets only; raw secrets are never written to logs, summaries, or SARIF files.
-- **Deterministic Exit Codes:**
-  - `0`: Pass (no blocking findings).
-  - `1`: Block (HIGH or MEDIUM findings detected).
-  - `2`: Runtime / Git error.
-  - `3`: Usage / CLI syntax error.
+**Key CI features:**
+- **Auto-environment detection** — recognizes GitHub Actions, GitLab CI, CircleCI, Azure Pipelines, Jenkins, or a generic CI environment.
+- **Git diff scanning** — by default, scans only files modified or added between the base branch (`origin/main`, `main`, etc.) and the current commit, keeping CI fast.
+- **GitHub Actions integration** — emits native workflow annotations (`::error::` for HIGH/MEDIUM, `::warning::` for LOW) and automatically writes a Markdown security report into `$GITHUB_STEP_SUMMARY`.
+- **Baseline awareness** — automatically suppresses known legacy findings using `.envguard-baseline.json` or `--baseline <path>`.
+- **Zero plaintext leaks** — masked secrets only; raw secrets are never written to logs, summaries, or SARIF files.
+- **Deterministic exit codes:**
+  - `0` — pass (no blocking findings)
+  - `1` — block (HIGH or MEDIUM findings detected)
+  - `2` — runtime / Git error
+  - `3` — usage / CLI syntax error
 
 ---
-
 
 ### 4. `envguard diff`
 Compares environment variable keys between `.env` and `.env.example`.
@@ -217,20 +208,20 @@ envguard diff --env .env.local --example .env.template
 ```
 Flags variables present in `.env` but missing from `.env.example`, and vice versa. Values are never parsed or logged.
 
-#### Drift Report:
+#### Drift Report
 ```text
 ┌──────────── ENVIRONMENT CONFIGURATION DRIFT ────────────┐
 │ .env variables: 12      .env.example variables: 10      │
 └─────────────────────────────────────────────────────────┘
 
-┌──────────────────────────┬──────────────────────┐
-│ Status                   │ Environment Variable │
-├──────────────────────────┼──────────────────────┤
-│ Missing from .env.example│ ✗ STRIPE_WEBHOOK_KEY │
-│ Missing from .env.example│ ✗ SENTRY_DSN         │
-├──────────────────────────┼──────────────────────┤
-│ Extra in .env.example    │ ⚠ DEPRECATED_URL    │
-└──────────────────────────┴──────────────────────┘
+┌───────────────────────────┬──────────────────────┐
+│ Status                    │ Environment Variable │
+├───────────────────────────┼──────────────────────┤
+│ Missing from .env.example │ STRIPE_WEBHOOK_KEY    │
+│ Missing from .env.example │ SENTRY_DSN            │
+├───────────────────────────┼──────────────────────┤
+│ Extra in .env.example     │ DEPRECATED_URL        │
+└───────────────────────────┴──────────────────────┘
 ```
 
 ---
@@ -242,7 +233,7 @@ envguard status
 ```
 
 ```text
-                  ENVGUARD PROJECT STATUS                   
+                  ENVGUARD PROJECT STATUS
 ┌──────────────────────────┬───────────────────────────────┐
 │ Check                    │ Status                        │
 ├──────────────────────────┼───────────────────────────────┤
@@ -257,7 +248,6 @@ envguard status
 
 ┌────────────────────────────────────────────────────────┐
 │  OVERALL STATUS: SECURE                                │
-│                                                        │
 │  All security checks passed. Repository is protected.  │
 └────────────────────────────────────────────────────────┘
 ```
@@ -269,9 +259,9 @@ Installs or safely appends the EnvGuard safety gate into `.git/hooks/pre-commit`
 ```bash
 envguard install-hook
 ```
-* Clear boundary markers (`# BEGIN ENVGUARD HOOK ... # END ENVGUARD HOOK`)
-* Preserves existing hooks without overwriting user scripts
-* Runs automatically before every commit
+- Clear boundary markers (`# BEGIN ENVGUARD HOOK ... # END ENVGUARD HOOK`)
+- Preserves existing hooks without overwriting user scripts
+- Runs automatically before every commit
 
 ---
 
@@ -313,7 +303,7 @@ envguard rules list --format json
 
 ---
 
-### 11. Inline Suppressions
+### 11. Inline suppressions
 Suppress intentional test secrets or fixtures directly in code using standard comment directives:
 ```python
 # Suppress all rules on this line:
@@ -340,12 +330,9 @@ Run `envguard menu` (or simply `envguard`) for the interactive console, or `envg
 
 ```text
 ┌─────────────────────────────────────────────────────────┐
-│                                                         │
-│                        ENVGUARD                         │
-│             Developer Security Safety Gate              │
-│                                                         │
-│    Secrets • Git Protection • Environment Validation    │
-│                                                         │
+│                        ENVGUARD                          │
+│             Developer Security Safety Gate               │
+│    Secrets • Git Protection • Environment Validation     │
 └─────────────────────────────────────────────────────────┘
 
 Project:         my-project
@@ -366,7 +353,7 @@ Git Repository:  Detected
 │   [0]    Exit                           │
 └─────────────────────────────────────────┘
 
-Select an option: 
+Select an option:
 ```
 
 ---
@@ -423,7 +410,6 @@ ci:
   job_summary: true            # Append Markdown summary to $GITHUB_STEP_SUMMARY
 ```
 
-
 > **Advanced Detection Engine (v0.4.0):** Combines pattern regexes, Shannon entropy calculations, structural JWT header decoding, and surrounding variable context into a centralized multi-signal scoring system. Known regex rules preserve their configured severity by design. UUIDs, Git hashes, SHA-256 digests, version numbers, and placeholders are excluded to minimize false positives. Configuration supports strict boundary validation on all fields.
 
 ---
@@ -475,9 +461,9 @@ ci:
 
 EnvGuard is built from the ground up for continuous integration pipelines, automated pull request validation, and GitHub Code Scanning.
 
-### GitHub Actions Workflow
+### GitHub Actions workflow
 
-EnvGuard includes a ready-to-use GitHub Actions workflow template at [`.github/workflows/envguard.yml`](file:///.github/workflows/envguard.yml):
+EnvGuard includes a ready-to-use GitHub Actions workflow template at [`.github/workflows/envguard.yml`](.github/workflows/envguard.yml):
 
 ```yaml
 name: EnvGuard Security Gate
@@ -501,7 +487,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Full history so git can compare base branch
+          fetch-depth: 0  # Full history so Git can compare against the base branch
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -512,8 +498,7 @@ jobs:
         run: pip install .
 
       - name: Run EnvGuard CI Gate
-        run: |
-          envguard ci --format sarif --output envguard.sarif
+        run: envguard ci --format sarif --output envguard.sarif
 
       - name: Upload SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
@@ -522,20 +507,28 @@ jobs:
           sarif_file: envguard.sarif
 ```
 
-### GitHub Actions Native Features
+### GitHub Actions native features
 
 When running inside GitHub Actions (`GITHUB_ACTIONS=true`), EnvGuard automatically:
-1. **Emits Workflow Annotations**:
+
+1. **Emits workflow annotations**
    - `::error file={path},line={line},title={rule_name}::[EnvGuard] {description}`
    - `::warning file={path},line={line},title={rule_name}::[EnvGuard] {description}`
-2. **Generates Rich Job Summaries**:
-   - Writes a clean, high-level summary table and breakdown to `$GITHUB_STEP_SUMMARY`, visible directly on the Actions job page.
-3. **Protects Credentials**:
-   - Only masked secret tokens (e.g., `AKIA••••••••••••MPLE`) are ever written to stdout, SARIF, or `$GITHUB_STEP_SUMMARY`.
+   - LOW-severity findings are recorded in SARIF output (mapped to `note` level) but do not emit annotations by default, to avoid noise on pull requests.
+2. **Generates rich job summaries** — writes a clean, high-level summary table and severity breakdown to `$GITHUB_STEP_SUMMARY`, visible directly on the Actions job page.
+3. **Protects credentials** — only masked secret tokens (e.g. `AKIA••••••••••••MPLE`) are ever written to stdout, SARIF, or `$GITHUB_STEP_SUMMARY`.
 
-### Other CI Environments
+### SARIF severity mapping
 
-EnvGuard auto-detects and seamlessly runs inside **GitLab CI**, **CircleCI**, **Azure Pipelines**, and **Jenkins**. It automatically compares changed files against the default branch without any extra configuration needed.
+| EnvGuard Severity | SARIF Level |
+|:---:|:---:|
+| HIGH | `error` |
+| MEDIUM | `warning` |
+| LOW | `note` |
+
+### Other CI environments
+
+EnvGuard auto-detects and runs seamlessly inside **GitLab CI**, **CircleCI**, **Azure Pipelines**, and **Jenkins**. It automatically compares changed files against the default branch without any extra configuration needed.
 
 ---
 
@@ -575,12 +568,14 @@ tests/test_v042_fixes.py::test_v042_version PASSED
 | v0.1.0 | MVP | Complete |
 | v0.2.0 | Open-source foundation | Complete |
 | v0.2.5 | Rich terminal UI upgrade | Complete |
-| v0.3.0 | Smart Developer Workflow (Ignore, Suppressions, Doctor, Init, Explain) | Complete |
-| v0.3.1 | Configuration Stability & Production Reliability Patch | Complete |
-| v0.4.2 | Stability & Production Diagnostics Patch | Complete |
-| **v0.5.0** | **CI/CD & GitHub Ecosystem (CI Detection, Changed-Files Diff, SARIF 2.1.0, GitHub Annotations & Step Summaries)** | **Current Release ✅** |
+| v0.3.0 | Smart Developer Workflow (ignore, suppressions, doctor, init, explain) | Complete |
+| v0.3.1 | Configuration stability & production reliability patch | Complete |
+| v0.4.0 | Advanced Detection Engine (entropy, JWT validation, expanded cloud provider rules) | Complete |
+| v0.4.2 | Stability & production diagnostics patch | Complete |
+| **v0.5.0** | **CI/CD & GitHub Ecosystem (CI detection, changed-file diff, SARIF 2.1.0, GitHub annotations & step summaries)** | **Current Release** |
+| v0.5.3 | Baseline validation & entropy detection fixes | Planned |
 | v0.6.0 | Team/project workflows & multi-repo policies | Planned |
-| v1.0.0 | Stable production release | Target 🚀 |
+| v1.0.0 | Stable production release | Target |
 
 ---
 
