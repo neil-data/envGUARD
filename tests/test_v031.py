@@ -18,12 +18,12 @@ from envguard.scanner import ScanFinding, compute_fingerprint, scan_text
 
 
 def test_v031_version_strings():
-    """Verify version 0.3.1 is consistent across package and CLI."""
-    assert __version__ == "0.3.1"
+    """Verify version is consistent across package and CLI."""
+    assert __version__ >= "0.3.1"
     runner = CliRunner()
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "EnvGuard version 0.3.1" in result.output
+    assert f"EnvGuard version {__version__}" in result.output
 
 
 def test_empty_yaml_values_normalized(tmp_path):

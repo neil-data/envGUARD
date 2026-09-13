@@ -94,6 +94,8 @@ def render_scan_json(
                     "masked_value": f.masked_value,
                     "fingerprint": f.fingerprint,
                 },
+                **({"entropy": f.entropy} if getattr(f, "entropy", None) is not None else {}),
+                **({"provider": f.provider} if getattr(f, "provider", None) else {}),
                 **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
             }
             for f in findings
@@ -141,6 +143,8 @@ def render_check_json(
                     "masked_value": f.masked_value,
                     "fingerprint": f.fingerprint,
                 },
+                **({"entropy": f.entropy} if getattr(f, "entropy", None) is not None else {}),
+                **({"provider": f.provider} if getattr(f, "provider", None) else {}),
                 **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
             }
             for f in all_findings
@@ -315,23 +319,48 @@ def render_rules_json(patterns: List[Pattern]) -> None:
 # Terminal Presentation Functions (Rich-Powered UI)
 # --------------------------------------------------------------------------
 
+SIGNAL_LABELS = {
+    "high_entropy": "High entropy",
+    "credential_variable_name": "Credential variable",
+    "token_like_length": "Token-like length",
+    "non_placeholder_value": "Non-placeholder",
+    "jwt_structure": "JWT structure",
+    "valid_jwt_header": "Valid JWT header",
+    "valid_base64url_segments": "Base64URL encoded",
+    "known_pattern_match": "Pattern match",
+    "provider_prefix": "Provider prefix",
+    "private_key_header": "Private key header",
+}
+
+
+def format_signals(finding: ScanFinding) -> str:
+    """Format detection signals for table display."""
+    signals = getattr(finding, "detection_signals", None) or []
+    if not signals:
+        return "-"
+    formatted = []
+    for s in signals:
+        if s == "high_entropy" and getattr(finding, "entropy", None) is not None:
+            formatted.append(f"Entropy ({finding.entropy:.2f})")
+        else:
+            formatted.append(SIGNAL_LABELS.get(s, s.replace("_", " ").capitalize()))
+    return ", ".join(formatted[:2])
+
+
 def print_scan_findings(
     findings: List[ScanFinding],
-    title: str = "Scan Findings",
-    stats: Optional[Dict[str, int]] = None,
+    title: str = "Scan Report",
+    stats: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Print detailed list of secret scan findings with summary and table."""
+    """Display scan findings in a Rich-styled table with summary."""
     if not findings:
-        sub = "No secrets were detected in the scanned files."
-        if stats and "files_scanned" in stats:
-            sub += f"\n[dim]Files scanned: {stats['files_scanned']} | Files skipped: {stats.get('files_skipped', 0)}[/dim]"
         console.print()
-        console.print(create_success_panel("SCAN PASSED", sub))
+        console.print(create_success_panel("SCAN PASSED", "No secrets were detected in the scanned files."))
         console.print()
         return
 
-    # 1. Summary Panel
-    if stats and "files_scanned" in stats:
+    # 1. Summary banner
+    if stats:
         console.print()
         console.print(
             create_summary_panel(
@@ -349,20 +378,26 @@ def print_scan_findings(
         header_style="bold cyan",
         expand=False,
     )
+    has_signals = any(bool(getattr(f, "detection_signals", None)) for f in findings)
     table.add_column("Severity", justify="center", style="bold")
     table.add_column("Rule ID", style="bold")
     table.add_column("File")
     table.add_column("Line", justify="right")
     table.add_column("Masked Value", style="cyan")
+    if has_signals:
+        table.add_column("Signals", style="magenta")
 
     for f in findings:
-        table.add_row(
+        row = [
             format_severity(f.severity),
             f.rule_id,
             f.file_path,
             str(f.line_number),
             f.masked_value,
-        )
+        ]
+        if has_signals:
+            row.append(format_signals(f))
+        table.add_row(*row)
 
     console.print()
     console.print(table)
@@ -416,6 +451,7 @@ def print_blocked_commit(findings: List[ScanFinding]) -> None:
     table.add_column("File")
     table.add_column("Line", justify="right")
     table.add_column("Masked Value", style="cyan")
+    table.add_column("Signals", style="magenta")
 
     for f in findings:
         table.add_row(
@@ -424,6 +460,7 @@ def print_blocked_commit(findings: List[ScanFinding]) -> None:
             f.file_path,
             str(f.line_number),
             f.masked_value,
+            format_signals(f),
         )
 
     console.print(table)

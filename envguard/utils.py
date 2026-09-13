@@ -148,7 +148,7 @@ def is_placeholder(value: str) -> bool:
     # Check if string contains obvious placeholder prefixes or suffixes
     if any(
         lower.startswith(prefix)
-        for prefix in ("your_", "your-", "enter_", "enter-", "sample_", "test_", "fake_", "fake-", "dummy_", "dummy-", "example_", "example-")
+        for prefix in ("your_", "your-", "enter_", "enter-", "sample_", "test_", "fake_", "fake-", "dummy_", "dummy-", "example_", "example-", "replace_with_", "replace-with-", "insert_")
     ):
         return True
 
@@ -156,7 +156,7 @@ def is_placeholder(value: str) -> bool:
         return True
 
     # Check for placeholder phrases inside string
-    for phrase in ("replace_me", "replace-me", "replaceme", "change_me", "changeme", "your_api_key", "your_key", "example_key", "dummy_key", "fake_key"):
+    for phrase in ("replace_me", "replace-me", "replaceme", "change_me", "changeme", "your_api_key", "your_key", "example_key", "dummy_key", "fake_key", "replace_with", "replace-with", "dummy_token"):
         if phrase in lower:
             return True
 

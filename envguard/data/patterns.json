@@ -119,6 +119,136 @@
       "detects": "Short assignments to key variables that may represent API or service keys",
       "why_it_matters": "Generic keys may be valid tokens for third-party or internal services.",
       "remediation": "Verify if the value is sensitive. If sensitive, move to .env; if placeholder, use recognized placeholder syntax."
+    },
+    {
+      "id": "aws-secret-access-key",
+      "name": "AWS Secret Access Key assignment",
+      "regex": "(?i)(?:aws_secret_access_key|aws_secret_key)\\s*[:=]\\s*['\"]?([A-Za-z0-9/+=]{40})['\"]?",
+      "severity": "HIGH",
+      "description": "Variable assignment containing AWS_SECRET_ACCESS_KEY with a 40-character Base64 value",
+      "detects": "Hardcoded AWS secret access keys in configuration or code",
+      "why_it_matters": "AWS secret keys provide full programmatic access to AWS services, enabling data theft, resource abuse, and infrastructure compromise.",
+      "remediation": "Rotate the key immediately in AWS IAM, audit CloudTrail for unauthorized access, and store the key in a secrets manager or environment variable."
+    },
+    {
+      "id": "aws-session-token",
+      "name": "AWS Session Token assignment",
+      "regex": "(?i)aws_session_token\\s*[:=]\\s*['\"]?([A-Za-z0-9/+=]{100,})['\"]?",
+      "severity": "HIGH",
+      "description": "Variable assignment containing AWS_SESSION_TOKEN with a long Base64 value",
+      "detects": "Hardcoded AWS temporary session tokens",
+      "why_it_matters": "Session tokens grant temporary AWS access and often accompany leaked access keys, compounding the risk.",
+      "remediation": "Revoke the session, rotate associated credentials, and use AWS STS for short-lived tokens injected at runtime."
+    },
+    {
+      "id": "google-api-key",
+      "name": "Google API Key",
+      "regex": "\\bAIza[0-9A-Za-z_-]{35}\\b",
+      "severity": "MEDIUM",
+      "description": "Google API key starting with AIza prefix",
+      "detects": "Google Cloud Platform API keys embedded in source code",
+      "why_it_matters": "Leaked Google API keys can be used to consume paid APIs, access restricted data, or impersonate your application.",
+      "remediation": "Restrict or delete the key in Google Cloud Console, apply API key restrictions, and load from environment variables."
+    },
+    {
+      "id": "google-service-account-key",
+      "name": "Google Service Account Key indicator",
+      "regex": "\"type\"\\s*:\\s*\"service_account\"",
+      "severity": "HIGH",
+      "description": "Google Cloud service account JSON key file structure indicator",
+      "detects": "Google Cloud service account private key JSON files committed to source",
+      "why_it_matters": "Service account keys grant persistent access to GCP resources and are a common attack vector for cloud compromise.",
+      "remediation": "Delete the key from GCP IAM, generate a new key stored outside version control, and use Workload Identity where possible."
+    },
+    {
+      "id": "azure-storage-connection-string",
+      "name": "Azure Storage Connection String",
+      "regex": "DefaultEndpointsProtocol=https?;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{86,}",
+      "severity": "HIGH",
+      "description": "Azure Storage connection string containing account name and key",
+      "detects": "Azure Storage connection strings with embedded access keys",
+      "why_it_matters": "Azure Storage connection strings grant full read/write access to blobs, queues, tables, and file shares.",
+      "remediation": "Rotate the storage account key in Azure Portal, use Managed Identity or SAS tokens, and store connection strings in Azure Key Vault."
+    },
+    {
+      "id": "azure-storage-key",
+      "name": "Azure Storage Account Key assignment",
+      "regex": "(?i)(?:account_?key|storage_?key)\\s*[:=]\\s*['\"]?([A-Za-z0-9+/=]{86,88})['\"]?",
+      "severity": "HIGH",
+      "description": "Variable assignment containing an Azure Storage account key (86-88 character Base64 value)",
+      "detects": "Hardcoded Azure Storage account keys in configuration or code",
+      "why_it_matters": "Storage account keys provide unrestricted access to all data in the Azure Storage account.",
+      "remediation": "Rotate the key in Azure Portal, migrate to Managed Identity or SAS tokens, and store keys in Azure Key Vault."
+    },
+    {
+      "id": "gitlab-token",
+      "name": "GitLab Personal Access Token",
+      "regex": "\\bglpat-[0-9a-zA-Z_-]{20,}\\b",
+      "severity": "HIGH",
+      "description": "GitLab Personal Access Token with glpat- prefix",
+      "detects": "GitLab personal or project access tokens",
+      "why_it_matters": "GitLab tokens grant API and repository access, risking code theft, pipeline manipulation, and supply chain attacks.",
+      "remediation": "Revoke the token in GitLab Settings > Access Tokens, generate a new token with minimal scopes, and use CI/CD variables for automation."
+    },
+    {
+      "id": "npm-token",
+      "name": "npm Access Token",
+      "regex": "\\b(?:npm_[A-Za-z0-9]{36}|//registry\\.npmjs\\.org/:_authToken=[A-Za-z0-9-]+)\\b",
+      "severity": "HIGH",
+      "description": "npm access token or registry authentication token",
+      "detects": "npm registry authentication tokens that allow package publishing",
+      "why_it_matters": "Compromised npm tokens allow publishing malicious versions of your packages, creating supply chain attacks.",
+      "remediation": "Revoke the token at npmjs.com > Access Tokens, generate a new token, and use npm automation tokens with limited scope."
+    },
+    {
+      "id": "pypi-token",
+      "name": "PyPI API Token",
+      "regex": "\\bpypi-[A-Za-z0-9_-]{100,}\\b",
+      "severity": "HIGH",
+      "description": "PyPI API token with pypi- prefix",
+      "detects": "PyPI package index API tokens for publishing Python packages",
+      "why_it_matters": "Leaked PyPI tokens allow publishing malicious package versions, enabling widespread supply chain attacks on Python ecosystems.",
+      "remediation": "Delete the token at pypi.org > Account Settings > API tokens, generate a new scoped token, and use trusted publishers where possible."
+    },
+    {
+      "id": "slack-token",
+      "name": "Slack Token",
+      "regex": "\\bxox[baprs]-[0-9a-zA-Z-]{10,}\\b",
+      "severity": "HIGH",
+      "description": "Slack API token (bot, app, user, or service token)",
+      "detects": "Slack workspace tokens that provide API access",
+      "why_it_matters": "Slack tokens can read messages, post as users, access files, and exfiltrate sensitive communications.",
+      "remediation": "Revoke the token in Slack admin, regenerate via your Slack app settings, and store tokens in a secrets manager."
+    },
+    {
+      "id": "discord-token",
+      "name": "Discord Bot/Webhook Token assignment",
+      "regex": "(?i)discord[_\\s]*(?:token|webhook)\\s*[:=]\\s*['\"]?([A-Za-z0-9._-]{50,})['\"]?",
+      "severity": "MEDIUM",
+      "description": "Variable assignment containing a Discord bot or webhook token",
+      "detects": "Discord bot tokens or webhook URLs embedded in source code",
+      "why_it_matters": "Discord tokens allow controlling bots, sending messages, and accessing server data.",
+      "remediation": "Regenerate the token in Discord Developer Portal, remove from source code, and use environment variables."
+    },
+    {
+      "id": "jwt-token",
+      "name": "JSON Web Token (JWT)",
+      "regex": "\\b(?:ey[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+)\\b",
+      "severity": "HIGH",
+      "description": "Signed or encrypted JSON Web Token (JWT) with three Base64URL segments",
+      "detects": "JSON Web Tokens used for API authentication, user sessions, and service authorization",
+      "why_it_matters": "Leaked JWTs allow attackers to impersonate authorized users or services without requiring passwords.",
+      "remediation": "Invalidate the token or rotate signing keys, verify expiration times, and pass tokens dynamically via secure storage or runtime headers."
+    },
+    {
+      "id": "generic-high-entropy-secret",
+      "name": "High Entropy Secret",
+      "regex": "(?i)(?:api_?key|secret|token|password|auth|credential)\\s*[:=]\\s*['\"]?([A-Za-z0-9+/=_-]{20,})['\"]?",
+      "severity": "MEDIUM",
+      "description": "High Shannon entropy string assigned in credential context",
+      "detects": "Unrecognized or custom provider credentials exhibiting high algorithmic randomness",
+      "why_it_matters": "High-entropy strings in credential contexts typically represent active API keys, encryption keys, or authentication tokens.",
+      "remediation": "Check if the value is an active secret. Move sensitive keys to .env or a secret store; use recognized placeholder syntax for test fixtures."
     }
   ]
 }

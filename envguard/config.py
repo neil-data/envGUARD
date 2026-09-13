@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 import yaml
 
+from envguard.detectors.scoring import AdvancedDetectionConfig
 from envguard.exceptions import ConfigurationError
 from envguard.utils import add_custom_placeholders
 
@@ -23,6 +24,7 @@ class EnvGuardConfig:
     severity_overrides: Dict[str, str] = field(default_factory=dict)
     placeholders: Set[str] = field(default_factory=set)
     block_on: List[str] = field(default_factory=lambda: list(DEFAULT_BLOCK_ON))
+    advanced_detection: AdvancedDetectionConfig = field(default_factory=AdvancedDetectionConfig)
     warnings: List[str] = field(default_factory=list)
     config_file_path: Optional[Path] = None
 
@@ -256,9 +258,130 @@ def load_config(root_dir: Optional[Path] = None, config_path: Optional[Path] = N
             config_path=config_filename,
         )
 
-    # 8. Check for unknown rule IDs to produce warnings
+    # 8. Advanced Detection section
     warnings: List[str] = []
-    # Known rule IDs
+    adv_section = raw_data.get("advanced_detection")
+    if adv_section is None:
+        adv_config = AdvancedDetectionConfig()
+    elif not isinstance(adv_section, dict):
+        raise ConfigurationError(
+            "'advanced_detection' must be a dictionary",
+            field="advanced_detection",
+            expected="dictionary",
+            received=type(adv_section).__name__,
+            config_path=config_filename,
+        )
+    else:
+        entropy_sec = adv_section.get("entropy")
+        entropy_enabled = True
+        entropy_min_len = 20
+        entropy_thresh = 4.0
+
+        if entropy_sec is not None:
+            if not isinstance(entropy_sec, dict):
+                raise ConfigurationError(
+                    "'advanced_detection.entropy' must be a dictionary",
+                    field="advanced_detection.entropy",
+                    expected="dictionary",
+                    received=type(entropy_sec).__name__,
+                    config_path=config_filename,
+                )
+            if "enabled" in entropy_sec:
+                en = entropy_sec["enabled"]
+                if not isinstance(en, bool):
+                    raise ConfigurationError(
+                        "'advanced_detection.entropy.enabled' must be a boolean",
+                        field="advanced_detection.entropy.enabled",
+                        expected="boolean",
+                        received=type(en).__name__,
+                        config_path=config_filename,
+                    )
+                entropy_enabled = en
+
+            if "min_length" in entropy_sec:
+                ml = entropy_sec["min_length"]
+                if not isinstance(ml, int) or isinstance(ml, bool) or ml <= 0:
+                    raise ConfigurationError(
+                        "'advanced_detection.entropy.min_length' must be a positive integer",
+                        field="advanced_detection.entropy.min_length",
+                        expected="positive integer",
+                        received=str(ml),
+                        config_path=config_filename,
+                    )
+                entropy_min_len = ml
+
+            if "threshold" in entropy_sec:
+                th = entropy_sec["threshold"]
+                if isinstance(th, bool) or not isinstance(th, (int, float)) or not (1.0 <= th <= 8.0):
+                    raise ConfigurationError(
+                        "'advanced_detection.entropy.threshold' must be a number between 1.0 and 8.0",
+                        field="advanced_detection.entropy.threshold",
+                        expected="float between 1.0 and 8.0",
+                        received=str(th),
+                        config_path=config_filename,
+                    )
+                entropy_thresh = float(th)
+
+        jwt_sec = adv_section.get("jwt")
+        jwt_enabled = True
+        if jwt_sec is not None:
+            if not isinstance(jwt_sec, dict):
+                raise ConfigurationError(
+                    "'advanced_detection.jwt' must be a dictionary",
+                    field="advanced_detection.jwt",
+                    expected="dictionary",
+                    received=type(jwt_sec).__name__,
+                    config_path=config_filename,
+                )
+            if "enabled" in jwt_sec:
+                jen = jwt_sec["enabled"]
+                if not isinstance(jen, bool):
+                    raise ConfigurationError(
+                        "'advanced_detection.jwt.enabled' must be a boolean",
+                        field="advanced_detection.jwt.enabled",
+                        expected="boolean",
+                        received=type(jen).__name__,
+                        config_path=config_filename,
+                    )
+                jwt_enabled = jen
+
+        context_sec = adv_section.get("context_analysis")
+        context_enabled = True
+        if context_sec is not None:
+            if not isinstance(context_sec, dict):
+                raise ConfigurationError(
+                    "'advanced_detection.context_analysis' must be a dictionary",
+                    field="advanced_detection.context_analysis",
+                    expected="dictionary",
+                    received=type(context_sec).__name__,
+                    config_path=config_filename,
+                )
+            if "enabled" in context_sec:
+                cen = context_sec["enabled"]
+                if not isinstance(cen, bool):
+                    raise ConfigurationError(
+                        "'advanced_detection.context_analysis.enabled' must be a boolean",
+                        field="advanced_detection.context_analysis.enabled",
+                        expected="boolean",
+                        received=type(cen).__name__,
+                        config_path=config_filename,
+                    )
+                context_enabled = cen
+
+        known_adv_keys = {"entropy", "jwt", "context_analysis"}
+        for k in adv_section:
+            if k not in known_adv_keys:
+                warnings.append(f"Unknown key '{k}' in advanced_detection")
+
+        adv_config = AdvancedDetectionConfig(
+            entropy_enabled=entropy_enabled,
+            entropy_min_length=entropy_min_len,
+            entropy_threshold=entropy_thresh,
+            jwt_enabled=jwt_enabled,
+            context_enabled=context_enabled,
+        )
+
+    # 9. Check for unknown rule IDs to produce warnings
     from envguard.patterns import load_default_patterns
     known_rules = {p.id for p in load_default_patterns()}
 
@@ -277,6 +400,7 @@ def load_config(root_dir: Optional[Path] = None, config_path: Optional[Path] = N
         severity_overrides=severity_overrides,
         placeholders=placeholders,
         block_on=block_on,
+        advanced_detection=adv_config,
         warnings=warnings,
         config_file_path=file_to_load,
     )

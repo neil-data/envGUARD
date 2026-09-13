@@ -245,6 +245,7 @@ def scan_cmd(ctx: click.Context, path: Path, output_format: str, baseline_path: 
                 rel_path_str=target.name,
                 patterns=patterns,
                 max_file_size_bytes=config.max_file_size_bytes,
+                advanced_config=config.advanced_detection,
             )
             if skip_reason:
                 stats["files_skipped"] = 1
@@ -262,6 +263,7 @@ def scan_cmd(ctx: click.Context, path: Path, output_format: str, baseline_path: 
                     max_file_size_bytes=config.max_file_size_bytes,
                     verbose_log=verbose_log,
                     stats=stats,
+                    advanced_config=config.advanced_detection,
                 )
             else:
                 with console.status("[bold cyan]Scanning project files for secrets...[/bold cyan]", spinner="dots"):
@@ -273,6 +275,7 @@ def scan_cmd(ctx: click.Context, path: Path, output_format: str, baseline_path: 
                         max_file_size_bytes=config.max_file_size_bytes,
                         verbose_log=verbose_log,
                         stats=stats,
+                        advanced_config=config.advanced_detection,
                     )
 
         if is_verbose and verbose_log:
@@ -371,6 +374,7 @@ def check_cmd(ctx: click.Context, output_format: str, baseline_path: Optional[Pa
             patterns=patterns,
             max_file_size_bytes=config.max_file_size_bytes,
             exclude_patterns=config.exclude,
+            advanced_config=config.advanced_detection,
         )
 
         # Baseline resolution

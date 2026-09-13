@@ -6,9 +6,9 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/version-0.3.1-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
+[![Release](https://img.shields.io/badge/version-0.4.0-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
-[![Tests](https://img.shields.io/badge/tests-71%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-101%20passed-brightgreen.svg)](#testing)
 
 <p>
   <a href="#why-envguard">Why EnvGuard</a> ·
@@ -363,8 +363,21 @@ reporting:
 | Rule ID | Rule Name | Default Severity | Target / Pattern |
 |---|---|:---:|---|
 | `aws-access-key` | AWS Access Key | HIGH | AWS Access Key ID (`AKIA...`) |
+| `aws-secret-access-key` | AWS Secret Access Key | HIGH | AWS secret access key (40-character Base64 value) |
+| `aws-session-token` | AWS Session Token | HIGH | AWS temporary session token assignment |
+| `google-api-key` | Google API Key | MEDIUM | Google Cloud Platform API keys (`AIza...`) |
+| `google-service-account-key` | Google Service Account Key | HIGH | Google Cloud service account JSON key file indicator |
+| `azure-storage-connection-string` | Azure Storage Connection String | HIGH | Azure storage connection strings with access keys |
+| `azure-storage-key` | Azure Storage Account Key | HIGH | Azure storage account key (86-88 char Base64) |
 | `github-token` | GitHub Personal Access Token | HIGH | Classic `ghp_` or fine-grained `github_pat_` |
+| `gitlab-token` | GitLab Personal Access Token | HIGH | GitLab personal or project tokens (`glpat-...`) |
+| `npm-token` | npm Access Token | HIGH | npm access tokens (`npm_...`) or registry auth tokens |
+| `pypi-token` | PyPI API Token | HIGH | PyPI package index API tokens (`pypi-...`) |
 | `stripe-secret-key` | Stripe Secret Key | HIGH | Stripe API keys (`sk_*`, `rk_*`) |
+| `slack-token` | Slack Token | HIGH | Slack bot, app, or user tokens (`xoxb-...`) |
+| `discord-token` | Discord Bot Token | MEDIUM | Discord bot or webhook token assignment |
+| `jwt-token` | JSON Web Token (JWT) | HIGH | Structural 3-segment Base64URL JWT verification |
+| `generic-high-entropy-secret` | High Entropy Secret | MEDIUM | Shannon entropy analysis ($H \ge 4.0$) in credential context |
 | `pem-private-key` | Private Key | HIGH | OpenSSL / PEM private key header |
 | `api-key-assignment` | API Key Assignment | MEDIUM | Assignments containing `API_KEY` |
 | `secret-assignment` | Secret Assignment | MEDIUM | Assignments containing `SECRET` |
@@ -490,8 +503,8 @@ tests/test_ui.py::test_interactive_menu_baseline_option PASSED
 | v0.2.0 | Open-source foundation | Complete |
 | v0.2.5 | Rich terminal UI upgrade | Complete |
 | v0.3.0 | Smart Developer Workflow (Ignore, Suppressions, Doctor, Init, Explain) | Complete |
-| **v0.3.1** | **Configuration Stability & Production Reliability Patch** | **Current Release ✅** |
-| v0.4.0 | Advanced detection (entropy, JWT, cloud providers) | Planned |
+| v0.3.1 | Configuration Stability & Production Reliability Patch | Complete |
+| **v0.4.0** | **Advanced Detection Engine (Entropy, JWT, Expanded Cloud Providers, Context Analysis)** | **Current Release ✅** |
 | v0.5.0 | CI/CD & GitHub ecosystem action | Planned |
 | v0.6.0 | Team/project workflows & multi-repo policies | Planned |
 | v1.0.0 | Stable production release | Target 🚀 |

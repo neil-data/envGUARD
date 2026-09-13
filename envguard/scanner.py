@@ -1,25 +1,29 @@
-"""Secret scanner engine for working directory and staged Git content with performance controls."""
+"""Secret scanning engine for EnvGuard v0.4.0.
+
+Provides line-by-line scanning, streaming file checks, Git staged-content inspection,
+multi-signal scoring, JWT validation, Shannon entropy analysis, and false-positive filtering.
+"""
 
 from dataclasses import dataclass, field
 import hashlib
-import os
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 import pathspec
 
+from envguard.detectors import (
+    AdvancedDetectionConfig,
+    DetectionCandidate,
+    ScoredResult,
+    detect_entropy_candidates,
+    detect_jwt_candidates,
+    detect_regex_candidates,
+    score_candidate,
+)
+from envguard.detectors.scoring import SEVERITY_ORDER
 from envguard.git_handler import get_staged_file_bytes, get_staged_files
-from envguard.ignore import (
-    BUILTIN_IGNORED_DIRS,
-    is_path_ignored,
-    load_envguardignore,
-    should_ignore_dir,
-)
+from envguard.ignore import BUILTIN_IGNORED_DIRS, is_path_ignored, load_envguardignore
 from envguard.patterns import Pattern, load_default_patterns
-from envguard.suppression import (
-    SuppressionManager,
-    parse_suppressions_from_lines,
-    parse_suppressions_from_text,
-)
+from envguard.suppression import SuppressionManager, parse_suppressions_from_lines
 from envguard.utils import is_binary_bytes, is_binary_file, mask_secret
 
 IGNORED_DIRECTORIES: Set[str] = BUILTIN_IGNORED_DIRS
@@ -50,6 +54,8 @@ class ScanFinding:
     fingerprint: str
     line_snippet: str = ""
     detection_signals: List[str] = field(default_factory=list)
+    entropy: Optional[float] = None
+    provider: Optional[str] = None
 
     @property
     def confidence(self) -> str:
@@ -86,51 +92,209 @@ class ScanReport:
     total_files_scanned: int = 0
 
 
-def scan_text(
-    text: str,
-    file_path_str: str,
-    patterns: List[Pattern],
+def deduplicate_and_merge_candidates(
+    scored_candidates: List[Tuple[DetectionCandidate, ScoredResult]],
+    line_snippet: str,
+    line_number: int,
+    file_path: Optional[str] = None,
+    file_path_str: Optional[str] = None,
     suppression_mgr: Optional[SuppressionManager] = None,
     stats: Optional[Dict[str, int]] = None,
 ) -> List[ScanFinding]:
-    """Scan string content line by line using provided patterns."""
+    """Group overlapping candidates on a line, pick specific over generic, and merge signals."""
+    if not scored_candidates:
+        return []
+    actual_file_path = file_path_str or file_path or ""
+
+    # Cluster candidates that share identical or overlapping secret values
+    clusters: List[List[Tuple[DetectionCandidate, ScoredResult]]] = []
+    for cand, scored in scored_candidates:
+        matched_cluster = None
+        c_val = cand.value.strip().strip("'\"")
+        for cluster in clusters:
+            for cl_cand, _ in cluster:
+                cl_val = cl_cand.value.strip().strip("'\"")
+                if c_val == cl_val or c_val in cl_val or cl_val in c_val:
+                    matched_cluster = cluster
+                    break
+            if matched_cluster is not None:
+                break
+
+        if matched_cluster is not None:
+            matched_cluster.append((cand, scored))
+        else:
+            clusters.append([(cand, scored)])
+
     findings: List[ScanFinding] = []
-    lines = text.splitlines()
-    if suppression_mgr is None:
-        suppression_mgr = parse_suppressions_from_lines(lines)
+    for cluster in clusters:
+        # Deterministic precedence:
+        # 1. Specific provider regex (score 50) e.g. aws-*, google-*, github-*, gitlab-*, npm-*, pypi-*, slack-*, discord-*, azure-*, stripe-*
+        # 2. JWT detector (score 40)
+        # 3. Generic regex assignments e.g. api-key-assignment, token-assignment (score 30)
+        # 4. Generic credential / generic secret regex (score 20)
+        # 5. Generic entropy (score 10)
+        def specificity_key(item: Tuple[DetectionCandidate, ScoredResult]) -> int:
+            c, _ = item
+            r_id = c.rule_id or ""
+            from envguard.detectors.regex_detector import PROVIDER_PREFIX_RULES
+            if c.source == "regex" and r_id in PROVIDER_PREFIX_RULES:
+                return 50
+            if c.source == "jwt":
+                return 40
+            if c.source == "regex" and not r_id.startswith("generic-"):
+                return 30
+            if c.source == "regex":
+                return 20
+            return 10
+
+        cluster.sort(key=specificity_key, reverse=True)
+        primary_cand, primary_scored = cluster[0]
+
+        # Check inline suppression on primary rule ID
+        if suppression_mgr and suppression_mgr.is_suppressed(line_number, primary_cand.rule_id or ""):
+            if stats is not None:
+                stats["suppressed_count"] = stats.get("suppressed_count", 0) + 1
+            continue
+
+        # Merge all unique signals from all items in the cluster
+        merged_signals: List[str] = []
+        for _, s in cluster:
+            for sig in s.signals:
+                if sig not in merged_signals:
+                    merged_signals.append(sig)
+
+        # Adopt highest severity in the cluster
+        severities = [s.severity for _, s in cluster if s.severity != "IGNORE"]
+        best_sev = primary_scored.severity
+        for sev in severities:
+            if SEVERITY_ORDER.get(sev, 0) > SEVERITY_ORDER.get(best_sev, 0):
+                best_sev = sev
+
+        entropy_val = next((c.entropy_value for c, _ in cluster if c.entropy_value is not None), None)
+        provider_val = next((c.provider for c, _ in cluster if c.provider), None)
+
+        fp = primary_cand.fingerprint or compute_fingerprint(primary_cand.rule_id or "generic-secret", actual_file_path, primary_cand.value)
+        masked = primary_cand.masked_value or mask_secret(primary_cand.value)
+
+        findings.append(
+            ScanFinding(
+                rule_id=primary_cand.rule_id or "generic-secret",
+                rule_name=primary_cand.rule_name or "Detected Secret",
+                severity=best_sev,
+                file_path=actual_file_path,
+                line_number=line_number,
+                raw_value=primary_cand.value,
+                masked_value=masked,
+                fingerprint=fp,
+                line_snippet=line_snippet,
+                detection_signals=merged_signals,
+                entropy=entropy_val,
+                provider=provider_val,
+            )
+        )
+
+    return findings
+
+
+def scan_lines(
+    lines: List[str],
+    file_path_str: str,
+    patterns: List[Pattern],
+    suppression_mgr: Optional[SuppressionManager] = None,
+    advanced_config: Optional[AdvancedDetectionConfig] = None,
+    stats: Optional[Dict[str, int]] = None,
+    full_text: Optional[str] = None,
+) -> List[ScanFinding]:
+    """Scan list of text lines orchestrating regex, JWT, entropy, and scoring."""
+    findings: List[ScanFinding] = []
+    cfg = advanced_config or AdvancedDetectionConfig()
 
     for line_idx, line in enumerate(lines, start=1):
         stripped = line.strip()
         if not stripped:
             continue
 
-        for pattern in patterns:
-            if not pattern.enabled:
-                continue
+        candidates: List[DetectionCandidate] = []
 
-            for secret_val, start, end in pattern.find_matches(line):
-                # Check inline suppression
-                if suppression_mgr and suppression_mgr.is_suppressed(line_idx, pattern.id):
-                    if stats is not None:
-                        stats["suppressed_count"] = stats.get("suppressed_count", 0) + 1
-                    continue
+        # 1. Regex detector
+        regex_cands = detect_regex_candidates(
+            line=line,
+            line_number=line_idx,
+            file_path=file_path_str,
+            patterns=patterns,
+            full_text=full_text,
+        )
+        candidates.extend(regex_cands)
 
-                fp = compute_fingerprint(pattern.id, file_path_str, secret_val)
-                findings.append(
-                    ScanFinding(
-                        rule_id=pattern.id,
-                        rule_name=pattern.name,
-                        severity=pattern.severity,
-                        file_path=file_path_str,
-                        line_number=line_idx,
-                        raw_value=secret_val,
-                        masked_value=mask_secret(secret_val),
-                        fingerprint=fp,
-                        line_snippet=stripped,
-                    )
-                )
+        # 2. JWT detector
+        if cfg.jwt_enabled:
+            jwt_cands = detect_jwt_candidates(
+                line=line,
+                line_number=line_idx,
+                file_path=file_path_str,
+                config=cfg,
+            )
+            candidates.extend(jwt_cands)
+
+        # 3. Entropy detector
+        if cfg.entropy_enabled:
+            entropy_cands = detect_entropy_candidates(
+                line=line,
+                line_number=line_idx,
+                file_path=file_path_str,
+                config=cfg,
+            )
+            candidates.extend(entropy_cands)
+
+        if not candidates:
+            continue
+
+        # 4. Score candidates
+        scored_candidates: List[Tuple[DetectionCandidate, ScoredResult]] = []
+        for cand in candidates:
+            scored = score_candidate(cand)
+            if scored.severity != "IGNORE":
+                scored_candidates.append((cand, scored))
+
+        if not scored_candidates:
+            continue
+
+        # 5. Deduplicate and merge into findings
+        merged = deduplicate_and_merge_candidates(
+            scored_candidates=scored_candidates,
+            line_snippet=stripped,
+            line_number=line_idx,
+            file_path=file_path_str,
+            suppression_mgr=suppression_mgr,
+            stats=stats,
+        )
+        findings.extend(merged)
 
     return findings
+
+
+def scan_text(
+    text: str,
+    file_path_str: str,
+    patterns: List[Pattern],
+    suppression_mgr: Optional[SuppressionManager] = None,
+    stats: Optional[Dict[str, int]] = None,
+    advanced_config: Optional[AdvancedDetectionConfig] = None,
+) -> List[ScanFinding]:
+    """Scan string content line by line using multi-signal detection engine."""
+    lines = text.splitlines()
+    if suppression_mgr is None:
+        suppression_mgr = parse_suppressions_from_lines(lines)
+
+    return scan_lines(
+        lines=lines,
+        file_path_str=file_path_str,
+        patterns=patterns,
+        suppression_mgr=suppression_mgr,
+        advanced_config=advanced_config,
+        stats=stats,
+        full_text=text,
+    )
 
 
 def load_root_gitignore(base_dir: Path) -> Optional[pathspec.PathSpec]:
@@ -161,6 +325,7 @@ def scan_file_streaming(
     patterns: List[Pattern],
     max_file_size_bytes: int = DEFAULT_MAX_BYTES,
     stats: Optional[Dict[str, int]] = None,
+    advanced_config: Optional[AdvancedDetectionConfig] = None,
 ) -> Tuple[List[ScanFinding], Optional[str]]:
     """Scan a single file line by line without loading the entire file into memory.
 
@@ -180,38 +345,15 @@ def scan_file_streaming(
             lines = f.readlines()
 
         suppression_mgr = parse_suppressions_from_lines(lines)
-        findings: List[ScanFinding] = []
-
-        for line_idx, line in enumerate(lines, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-
-            for pattern in patterns:
-                if not pattern.enabled:
-                    continue
-
-                for secret_val, start, end in pattern.find_matches(line):
-                    # Check inline suppression
-                    if suppression_mgr.is_suppressed(line_idx, pattern.id):
-                        if stats is not None:
-                            stats["suppressed_count"] = stats.get("suppressed_count", 0) + 1
-                        continue
-
-                    fp = compute_fingerprint(pattern.id, rel_path_str, secret_val)
-                    findings.append(
-                        ScanFinding(
-                            rule_id=pattern.id,
-                            rule_name=pattern.name,
-                            severity=pattern.severity,
-                            file_path=rel_path_str,
-                            line_number=line_idx,
-                            raw_value=secret_val,
-                            masked_value=mask_secret(secret_val),
-                            fingerprint=fp,
-                            line_snippet=stripped,
-                        )
-                    )
+        findings = scan_lines(
+            lines=lines,
+            file_path_str=rel_path_str,
+            patterns=patterns,
+            suppression_mgr=suppression_mgr,
+            advanced_config=advanced_config,
+            stats=stats,
+            full_text="".join(lines),
+        )
         return findings, None
     except Exception as e:
         return [], f"read error: {e}"
@@ -225,6 +367,7 @@ def scan_directory(
     max_file_size_bytes: int = DEFAULT_MAX_BYTES,
     verbose_log: Optional[List[str]] = None,
     stats: Optional[Dict[str, int]] = None,
+    advanced_config: Optional[AdvancedDetectionConfig] = None,
 ) -> List[ScanFinding]:
     """Scan current working directory recursively with streaming, .envguardignore, and suppression."""
     if patterns is None:
@@ -244,6 +387,7 @@ def scan_directory(
             patterns=patterns,
             max_file_size_bytes=max_file_size_bytes,
             stats=stats,
+            advanced_config=advanced_config,
         )
         if stats is not None:
             if skip_reason:
@@ -258,66 +402,48 @@ def scan_directory(
 
     all_findings: List[ScanFinding] = []
 
-    for root, dirs, files in os.walk(directory):
-        root_path = Path(root)
+    # Sort for deterministic directory traversal order
+    for item in sorted(directory.rglob("*")):
+        if item.is_dir():
+            continue
 
-        # In-place modify dirs to avoid descending into ignored directories
-        surviving_dirs = []
-        for d in dirs:
-            rel_dir = (root_path / d).relative_to(directory).as_posix()
-            ignored, reason = is_path_ignored(
-                rel_path=rel_dir,
-                gitignore_spec=gitignore_spec,
-                envguardignore_spec=envguardignore_spec,
-                config_exclude_spec=config_exclude_spec,
-                is_dir=True,
-            )
-            if ignored:
-                if verbose_log is not None:
-                    verbose_log.append(f"Skipped {reason} directory: {rel_dir}")
-                continue
-            surviving_dirs.append(d)
-        dirs[:] = surviving_dirs
+        rel_path = str(item.relative_to(directory)).replace("\\", "/")
 
-        for filename in files:
-            file_path = root_path / filename
-            rel_file = file_path.relative_to(directory).as_posix()
+        ignored, reason = is_path_ignored(
+            rel_path=rel_path,
+            gitignore_spec=gitignore_spec,
+            envguardignore_spec=envguardignore_spec,
+            config_exclude_spec=config_exclude_spec,
+            is_dir=False,
+        )
 
-            ignored, reason = is_path_ignored(
-                rel_path=rel_file,
-                gitignore_spec=gitignore_spec,
-                envguardignore_spec=envguardignore_spec,
-                config_exclude_spec=config_exclude_spec,
-                is_dir=False,
-            )
-            if ignored:
-                if stats is not None:
-                    stats["files_skipped"] += 1
-                    if reason == "envguardignore":
-                        stats["ignored_by_envguardignore"] = stats.get("ignored_by_envguardignore", 0) + 1
-                    elif reason == "gitignore":
-                        stats["ignored_by_gitignore"] = stats.get("ignored_by_gitignore", 0) + 1
-                if verbose_log is not None:
-                    verbose_log.append(f"Skipped ({reason}): {rel_file}")
-                continue
+        if ignored:
+            if stats is not None:
+                if reason == "envguardignore":
+                    stats["ignored_by_envguardignore"] += 1
+                elif reason == "gitignore":
+                    stats["ignored_by_gitignore"] += 1
+            if verbose_log is not None:
+                verbose_log.append(f"Skipped {rel_path} ({reason})")
+            continue
 
-            findings, skip_reason = scan_file_streaming(
-                file_path=file_path,
-                rel_path_str=rel_file,
-                patterns=patterns,
-                max_file_size_bytes=max_file_size_bytes,
-                stats=stats,
-            )
+        findings, skip_reason = scan_file_streaming(
+            file_path=item,
+            rel_path_str=rel_path,
+            patterns=patterns,
+            max_file_size_bytes=max_file_size_bytes,
+            stats=stats,
+            advanced_config=advanced_config,
+        )
 
-            if skip_reason:
-                if stats is not None:
-                    stats["files_skipped"] += 1
-                if verbose_log is not None:
-                    verbose_log.append(f"Skipped {skip_reason}: {rel_file}")
-            else:
-                if stats is not None:
-                    stats["files_scanned"] += 1
-
+        if skip_reason:
+            if stats is not None:
+                stats["files_skipped"] += 1
+            if verbose_log is not None:
+                verbose_log.append(f"Skipped {rel_path} ({skip_reason})")
+        else:
+            if stats is not None:
+                stats["files_scanned"] += 1
             all_findings.extend(findings)
 
     return all_findings
@@ -329,6 +455,7 @@ def scan_staged(
     max_file_size_bytes: int = DEFAULT_MAX_BYTES,
     exclude_patterns: Optional[List[str]] = None,
     stats: Optional[Dict[str, int]] = None,
+    advanced_config: Optional[AdvancedDetectionConfig] = None,
 ) -> List[ScanFinding]:
     """Scan staged files directly from Git index using git show :path."""
     if patterns is None:
@@ -366,7 +493,13 @@ def scan_staged(
                 continue
 
             content = raw_bytes.decode("utf-8", errors="replace")
-            findings = scan_text(content, rel_path, patterns, stats=stats)
+            findings = scan_text(
+                text=content,
+                file_path_str=rel_path,
+                patterns=patterns,
+                stats=stats,
+                advanced_config=advanced_config,
+            )
             all_findings.extend(findings)
         except Exception:
             # Handle decoding or git errors gracefully for individual files
