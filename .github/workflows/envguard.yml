@@ -1,0 +1,46 @@
+name: EnvGuard Security Scan
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  envguard:
+    name: EnvGuard Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history required for changed-file comparison against base
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install EnvGuard
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+
+      - name: Run EnvGuard CI Security Gate
+        run: |
+          envguard ci --format text
+
+      # Optional SARIF Report generation and upload to GitHub Advanced Security / Code Scanning:
+      # - name: Generate SARIF Security Report
+      #   if: always()
+      #   run: |
+      #     envguard ci --format sarif --output envguard.sarif
+      # - name: Upload SARIF Report
+      #   if: always()
+      #   uses: github/codeql-action/upload-sarif@v3
+      #   with:
+      #     sarif_file: envguard.sarif

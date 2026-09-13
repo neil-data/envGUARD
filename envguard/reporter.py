@@ -52,9 +52,100 @@ from envguard.theme import (
 JSON_SCHEMA_VERSION = 1
 
 
-def print_json(data: Dict[str, Any]) -> None:
-    """Print pure JSON to stdout with 2-space indentation."""
-    print(json.dumps(data, indent=2))
+def write_output(content: str, output_path: Optional[Path] = None) -> None:
+    """Write text content to file or print to stdout, safely creating parent directories."""
+    if output_path is not None:
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(content, encoding="utf-8")
+        except Exception as e:
+            from envguard.exceptions import ScanError
+            raise ScanError(f"Failed to write output file '{output_path}': {e}")
+    else:
+        print(content)
+
+
+def print_json(data: Dict[str, Any], output_path: Optional[Path] = None) -> None:
+    """Print pure JSON to stdout or write to specified output_path."""
+    formatted = json.dumps(data, indent=2)
+    write_output(formatted, output_path)
+
+
+def render_sarif(
+    findings: List[ScanFinding],
+    output_path: Optional[Path] = None,
+    patterns: Optional[List[Pattern]] = None,
+) -> None:
+    """Output scan findings in standard SARIF v2.1.0 format."""
+    from envguard.sarif import generate_sarif
+    sarif_data = generate_sarif(findings=findings, tool_version=__version__, patterns=patterns)
+    formatted = json.dumps(sarif_data, indent=2)
+    write_output(formatted, output_path)
+
+
+def render_ci_summary(
+    findings: List[ScanFinding],
+    files_scanned: int,
+    baseline_suppressed: int,
+    block_on: List[str],
+    ci_env: Optional[Any] = None,
+    mode_description: str = "Changed Files",
+    base_reference: Optional[str] = None,
+    output_path: Optional[Path] = None,
+) -> None:
+    """Render a clean, log-friendly CI summary for automated pipelines."""
+    blocking = [f for f in findings if f.is_blocking_for(block_on)]
+    is_blocked = len(blocking) > 0
+    status_str = "BLOCKED" if is_blocked else "PASSED"
+
+    high = sum(1 for f in findings if f.severity == "HIGH")
+    medium = sum(1 for f in findings if f.severity == "MEDIUM")
+    low = sum(1 for f in findings if f.severity == "LOW")
+
+    provider_name = getattr(ci_env, "provider", "local").title() if ci_env else "Local"
+    if provider_name.lower() == "github":
+        provider_name = "GitHub Actions"
+    elif provider_name.lower() == "gitlab":
+        provider_name = "GitLab CI"
+    elif provider_name.lower() == "circleci":
+        provider_name = "CircleCI"
+    elif provider_name.lower() == "azure":
+        provider_name = "Azure Pipelines"
+
+    lines: List[str] = [
+        "",
+        "EnvGuard CI Scan",
+        "────────────────────────────────────────────────────────",
+        f"CI Provider:        {provider_name}",
+        f"Scan Mode:          {mode_description}",
+    ]
+    if base_reference:
+        lines.append(f"Base Reference:     {base_reference}")
+    if ci_env and getattr(ci_env, "repository", None):
+        lines.append(f"Repository:         {ci_env.repository}")
+    if ci_env and getattr(ci_env, "branch", None):
+        lines.append(f"Branch / Ref:       {ci_env.branch}")
+
+    lines.extend([
+        f"Files Scanned:      {files_scanned}",
+        f"Findings Detected:  Total: {len(findings)} (HIGH: {high}, MEDIUM: {medium}, LOW: {low})",
+        f"Baseline:           {baseline_suppressed} suppressed",
+        f"Result Status:      {status_str}",
+        "────────────────────────────────────────────────────────",
+    ])
+
+    if findings:
+        lines.append("Active Findings:")
+        for idx, f in enumerate(findings, start=1):
+            norm_path = f.file_path.replace("\\", "/")
+            masked = f.masked_value or "••••••••"
+            lines.append(f"  {idx}. [{f.severity}] {f.rule_id} at {norm_path}:{f.line_number} -> {masked}")
+        lines.append("")
+    else:
+        lines.append("No active secret findings detected.\n")
+
+    summary_text = "\n".join(lines)
+    write_output(summary_text, output_path)
 
 
 def render_scan_json(
@@ -62,6 +153,7 @@ def render_scan_json(
     command: str = "scan",
     status: Optional[str] = None,
     suppressed_count: int = 0,
+    output_path: Optional[Path] = None,
 ) -> None:
     """Output scan findings in structured JSON format."""
     high = sum(1 for f in findings if f.severity == "HIGH")
@@ -101,7 +193,7 @@ def render_scan_json(
             for f in findings
         ],
     }
-    print_json(data)
+    print_json(data, output_path=output_path)
 
 
 def render_check_json(
@@ -109,6 +201,7 @@ def render_check_json(
     low_findings: Optional[List[ScanFinding]] = None,
     no_staged: bool = False,
     error: Optional[str] = None,
+    output_path: Optional[Path] = None,
 ) -> None:
     """Output git check result in structured JSON format."""
     if error:
@@ -119,7 +212,7 @@ def render_check_json(
             "status": "error",
             "error": error,
         }
-        print_json(data)
+        print_json(data, output_path=output_path)
         return
 
     blocking = blocking_findings or []
@@ -164,12 +257,13 @@ def render_check_json(
             for f in all_findings
         ],
     }
-    print_json(data)
+    print_json(data, output_path=output_path)
 
 
 def render_diff_json(
     diff_result: Optional[EnvDiffResult],
     error: Optional[str] = None,
+    output_path: Optional[Path] = None,
 ) -> None:
     """Output environment diff in structured JSON format."""
     if error:
@@ -191,7 +285,7 @@ def render_diff_json(
             "missing_from_example": diff_result.missing_from_example if diff_result else [],
             "extra_in_example": diff_result.extra_in_example if diff_result else [],
         }
-    print_json(data)
+    print_json(data, output_path=output_path)
 
 
 def render_status_json(

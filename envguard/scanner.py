@@ -360,6 +360,83 @@ def scan_file_streaming(
         return [], f"read error: {e}"
 
 
+def scan_files(
+    files: List[Path],
+    base_dir: Path,
+    patterns: Optional[List[Pattern]] = None,
+    respect_gitignore: bool = True,
+    exclude_patterns: Optional[List[str]] = None,
+    max_file_size_bytes: int = DEFAULT_MAX_BYTES,
+    verbose_log: Optional[List[str]] = None,
+    stats: Optional[Dict[str, int]] = None,
+    advanced_config: Optional[AdvancedDetectionConfig] = None,
+) -> List[ScanFinding]:
+    """Scan an explicit list of file paths against secret patterns."""
+    if patterns is None:
+        patterns = load_default_patterns()
+
+    if stats is not None:
+        stats.setdefault("files_scanned", 0)
+        stats.setdefault("files_skipped", 0)
+        stats.setdefault("suppressed_count", 0)
+        stats.setdefault("ignored_by_envguardignore", 0)
+        stats.setdefault("ignored_by_gitignore", 0)
+
+    gitignore_spec = load_root_gitignore(base_dir) if respect_gitignore else None
+    envguardignore_spec = load_envguardignore(base_dir)
+    config_exclude_spec = compile_exclude_spec(exclude_patterns or [])
+
+    all_findings: List[ScanFinding] = []
+
+    for item in sorted(files):
+        if not item.is_file():
+            continue
+
+        try:
+            rel_path = str(item.relative_to(base_dir)).replace("\\", "/")
+        except ValueError:
+            rel_path = str(item).replace("\\", "/")
+
+        ignored, reason = is_path_ignored(
+            rel_path=rel_path,
+            gitignore_spec=gitignore_spec,
+            envguardignore_spec=envguardignore_spec,
+            config_exclude_spec=config_exclude_spec,
+            is_dir=False,
+        )
+
+        if ignored:
+            if stats is not None:
+                if reason == "envguardignore":
+                    stats["ignored_by_envguardignore"] += 1
+                elif reason == "gitignore":
+                    stats["ignored_by_gitignore"] += 1
+            if verbose_log is not None:
+                verbose_log.append(f"Skipped {rel_path} ({reason})")
+            continue
+
+        findings, skip_reason = scan_file_streaming(
+            file_path=item,
+            rel_path_str=rel_path,
+            patterns=patterns,
+            max_file_size_bytes=max_file_size_bytes,
+            stats=stats,
+            advanced_config=advanced_config,
+        )
+
+        if skip_reason:
+            if stats is not None:
+                stats["files_skipped"] += 1
+            if verbose_log is not None:
+                verbose_log.append(f"Skipped {rel_path} ({skip_reason})")
+        else:
+            if stats is not None:
+                stats["files_scanned"] += 1
+            all_findings.extend(findings)
+
+    return all_findings
+
+
 def scan_directory(
     directory: Path,
     patterns: Optional[List[Pattern]] = None,
@@ -369,10 +446,36 @@ def scan_directory(
     verbose_log: Optional[List[str]] = None,
     stats: Optional[Dict[str, int]] = None,
     advanced_config: Optional[AdvancedDetectionConfig] = None,
+    changed_only: bool = False,
+    base_ref: Optional[str] = None,
 ) -> List[ScanFinding]:
-    """Scan current working directory recursively with streaming, .envguardignore, and suppression."""
+    """Scan current working directory recursively with streaming, .envguardignore, and suppression.
+
+    Supports changed_only=True to scan only files modified relative to base_ref.
+    """
     if patterns is None:
         patterns = load_default_patterns()
+
+    if changed_only:
+        from envguard.exceptions import GitError
+        from envguard.git_utils import get_changed_files, get_default_base_branch, is_git_repository
+
+        if not is_git_repository(directory):
+            raise GitError("Cannot scan changed files: current directory is not a Git repository.")
+
+        ref = base_ref or get_default_base_branch(directory) or "HEAD~1"
+        changed_files = get_changed_files(base=ref, head="HEAD", repo_path=directory)
+        return scan_files(
+            files=changed_files,
+            base_dir=directory,
+            patterns=patterns,
+            respect_gitignore=respect_gitignore,
+            exclude_patterns=exclude_patterns,
+            max_file_size_bytes=max_file_size_bytes,
+            verbose_log=verbose_log,
+            stats=stats,
+            advanced_config=advanced_config,
+        )
 
     if stats is not None:
         stats.setdefault("files_scanned", 0)

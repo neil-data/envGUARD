@@ -4,6 +4,13 @@ from pathlib import Path
 import subprocess
 from typing import List, Optional
 
+from envguard.git_utils import (
+    get_changed_files,
+    get_default_base_branch,
+    is_git_repository,
+    run_git,
+)
+
 
 def run_git_command(args: List[str], cwd: Optional[Path] = None, check: bool = False) -> subprocess.CompletedProcess:
     """Run a git command safely and return CompletedProcess."""

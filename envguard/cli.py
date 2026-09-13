@@ -27,6 +27,7 @@ from envguard.baseline import (
     filter_baseline_findings,
     load_baseline,
 )
+from envguard.ci import detect_ci_environment
 from envguard.config import find_config_file, load_config
 from envguard.env_diff import compare_env_files
 from envguard.exceptions import (
@@ -44,6 +45,13 @@ from envguard.git_handler import (
     is_env_tracked,
     is_git_repo,
 )
+from envguard.git_utils import (
+    get_changed_files,
+    get_default_base_branch,
+    get_git_root as get_git_root_util,
+    is_git_repository,
+)
+from envguard.github_actions import write_github_annotations, write_github_job_summary
 from envguard.diagnostics import run_diagnostics
 from envguard.hook import install_pre_commit_hook, is_hook_installed
 from envguard.initializer import init_project
@@ -61,15 +69,18 @@ from envguard.reporter import (
     print_scan_findings,
     print_status_dashboard,
     render_check_json,
+    render_ci_summary,
     render_diff_json,
     render_doctor_json,
     render_explain_json,
     render_init_json,
     render_rules_json,
+    render_sarif,
     render_scan_json,
     render_status_json,
+    write_output,
 )
-from envguard.scanner import scan_directory, scan_staged
+from envguard.scanner import scan_directory, scan_files, scan_staged
 from envguard.theme import create_error_panel, create_success_panel
 
 
@@ -192,20 +203,45 @@ def ui_cmd() -> None:
 
 
 @main.command(name="scan")
+@click.argument(
+    "path_arg",
+    required=False,
+    type=click.Path(exists=True, file_okay=True, dir_okay=True, path_type=Path),
+    default=None,
+)
 @click.option(
     "--path",
     "-p",
+    "path_opt",
     type=click.Path(exists=True, file_okay=True, dir_okay=True, path_type=Path),
-    default=".",
+    default=None,
     help="Target directory or file to scan (defaults to current directory).",
 )
 @click.option(
     "--format",
     "-f",
     "output_format",
-    type=click.Choice(["text", "json"], case_sensitive=False),
+    type=click.Choice(["text", "json", "sarif"], case_sensitive=False),
     default="text",
-    help="Output format: text (default) or machine-readable json.",
+    help="Output format: text (default), json, or sarif.",
+)
+@click.option(
+    "--output",
+    "-o",
+    "output_file",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Path to write the output report file.",
+)
+@click.option(
+    "--changed",
+    is_flag=True,
+    help="Scan only files modified relative to a Git base reference.",
+)
+@click.option(
+    "--base",
+    default=None,
+    help="Base Git reference for --changed comparison (e.g. main, origin/main).",
 )
 @click.option(
     "--baseline",
@@ -217,10 +253,21 @@ def ui_cmd() -> None:
 )
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
 @click.pass_context
-def scan_cmd(ctx: click.Context, path: Path, output_format: str, baseline_path: Optional[Path], verbose: bool) -> None:
+def scan_cmd(
+    ctx: click.Context,
+    path_arg: Optional[Path],
+    path_opt: Optional[Path],
+    output_format: str,
+    output_file: Optional[Path],
+    changed: bool,
+    base: Optional[str],
+    baseline_path: Optional[Path],
+    verbose: bool,
+) -> None:
     """Scan the working directory recursively for secrets, respecting .gitignore and config."""
     is_verbose = verbose or ctx.obj.get("VERBOSE", False)
-    target = path.resolve()
+    raw_path = path_arg or path_opt or Path(".")
+    target = raw_path.resolve()
     target_dir = target if target.is_dir() else target.parent
 
     try:
@@ -238,7 +285,20 @@ def scan_cmd(ctx: click.Context, path: Path, output_format: str, baseline_path: 
         verbose_log = [] if is_verbose else None
         stats = {"files_scanned": 0, "files_skipped": 0}
 
-        if target.is_file():
+        if changed:
+            findings = scan_directory(
+                directory=target,
+                patterns=patterns,
+                respect_gitignore=True,
+                exclude_patterns=config.exclude,
+                max_file_size_bytes=config.max_file_size_bytes,
+                verbose_log=verbose_log,
+                stats=stats,
+                advanced_config=config.advanced_detection,
+                changed_only=True,
+                base_ref=base,
+            )
+        elif target.is_file():
             from envguard.scanner import scan_file_streaming
             findings, skip_reason = scan_file_streaming(
                 file_path=target,
@@ -254,7 +314,7 @@ def scan_cmd(ctx: click.Context, path: Path, output_format: str, baseline_path: 
             else:
                 stats["files_scanned"] = 1
         else:
-            if output_format.lower() == "json":
+            if output_format.lower() in ("json", "sarif"):
                 findings = scan_directory(
                     directory=target,
                     patterns=patterns,
@@ -299,20 +359,231 @@ def scan_cmd(ctx: click.Context, path: Path, output_format: str, baseline_path: 
         baseline_fingerprints = load_baseline(resolved_baseline) if resolved_baseline else set()
         new_findings, suppressed_findings = filter_baseline_findings(findings, baseline_fingerprints)
 
-        if output_format.lower() == "json":
+        fmt = output_format.lower()
+        if fmt == "sarif":
+            render_sarif(new_findings, output_path=output_file, patterns=patterns)
+        elif fmt == "json":
             render_scan_json(
                 findings=new_findings,
                 command="scan",
                 suppressed_count=len(suppressed_findings),
+                output_path=output_file,
             )
         else:
             if suppressed_findings:
                 console.print(f"[dim]Suppressed {len(suppressed_findings)} finding(s) matching baseline.[/dim]\n")
+            if output_file is not None:
+                render_ci_summary(
+                    new_findings,
+                    files_scanned=stats.get("files_scanned", 0),
+                    baseline_suppressed=len(suppressed_findings),
+                    block_on=config.block_on,
+                    mode_description=f"Scan: {target.name}",
+                    output_path=output_file,
+                )
             print_scan_findings(new_findings, title=f"Scan Report: {target.name}", stats=stats)
 
         if new_findings:
             sys.exit(1)
         sys.exit(0)
+    except EnvGuardError as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+    except Exception as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+
+
+@main.command(name="ci")
+@click.option(
+    "--base",
+    default=None,
+    help="Base Git reference to compare against (e.g. main, origin/main).",
+)
+@click.option(
+    "-f",
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json", "sarif"], case_sensitive=False),
+    default="text",
+    help="Output format: text (default), json, or sarif.",
+)
+@click.option(
+    "-o",
+    "--output",
+    "output_file",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Path to write the report file (text, json, or sarif).",
+)
+@click.option(
+    "--all",
+    "scan_all",
+    is_flag=True,
+    help="Scan the entire repository instead of only changed files.",
+)
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    help="Enable verbose diagnostic logging.",
+)
+@click.option(
+    "--baseline",
+    "baseline_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Path to baseline file (.envguard-baseline.json).",
+)
+@click.pass_context
+def ci_cmd(
+    ctx: click.Context,
+    base: Optional[str],
+    output_format: str,
+    output_file: Optional[Path],
+    scan_all: bool,
+    verbose: bool,
+    baseline_path: Optional[Path],
+) -> None:
+    """Automated security gate optimized for CI/CD pipelines (GitHub Actions, GitLab, etc.)."""
+    is_verbose = verbose or ctx.obj.get("VERBOSE", False)
+    cwd = Path.cwd()
+
+    try:
+        ci_env = detect_ci_environment()
+        repo_root = get_git_root_util(cwd) or cwd
+        config_file = find_config_file(cwd) or find_config_file(repo_root)
+        config = load_config(root_dir=repo_root, config_path=config_file)
+
+        if is_verbose and config.warnings:
+            for w in config.warnings:
+                console.print(f"[yellow]Config warning:[/yellow] {w}", file=sys.stderr)
+
+        patterns = load_default_patterns(
+            disabled_rules=config.disabled_rules,
+            severity_overrides=config.severity_overrides,
+        )
+
+        verbose_log = [] if is_verbose else None
+        stats = {"files_scanned": 0, "files_skipped": 0}
+
+        # Determine scan scope: changed files vs full repository
+        should_scan_all = scan_all or not config.ci.changed_files_only
+        mode_desc = "Full Repository" if should_scan_all else "Changed Files"
+        target_base = None
+
+        if should_scan_all:
+            findings = scan_directory(
+                directory=repo_root,
+                patterns=patterns,
+                respect_gitignore=True,
+                exclude_patterns=config.exclude,
+                max_file_size_bytes=config.max_file_size_bytes,
+                verbose_log=verbose_log,
+                stats=stats,
+                advanced_config=config.advanced_detection,
+            )
+            files_scanned = stats.get("files_scanned", 0)
+        else:
+            if not is_git_repository(cwd):
+                err_msg = "Cannot scan changed files: current directory is not a Git repository."
+                if output_format.lower() == "json":
+                    render_scan_json([], command="ci", status="error", output_path=output_file)
+                raise GitError(err_msg)
+
+            # Determine base reference
+            target_base = base or config.ci.base_branch or ci_env.base_ref
+            if not target_base:
+                target_base = get_default_base_branch(repo_root)
+            if not target_base:
+                target_base = "HEAD~1"
+
+            try:
+                changed_files = get_changed_files(base=target_base, head="HEAD", repo_path=repo_root)
+            except GitError as ge:
+                if is_verbose:
+                    console.print(f"[yellow]Warning:[/yellow] Could not compare against '{target_base}': {ge}. Falling back to full scan.", file=sys.stderr)
+                changed_files = None
+                mode_desc = "Full Repository (Fallback)"
+
+            if changed_files is not None:
+                findings = scan_files(
+                    files=changed_files,
+                    base_dir=repo_root,
+                    patterns=patterns,
+                    respect_gitignore=True,
+                    exclude_patterns=config.exclude,
+                    max_file_size_bytes=config.max_file_size_bytes,
+                    verbose_log=verbose_log,
+                    stats=stats,
+                    advanced_config=config.advanced_detection,
+                )
+                files_scanned = stats.get("files_scanned", len(changed_files))
+            else:
+                findings = scan_directory(
+                    directory=repo_root,
+                    patterns=patterns,
+                    respect_gitignore=True,
+                    exclude_patterns=config.exclude,
+                    max_file_size_bytes=config.max_file_size_bytes,
+                    verbose_log=verbose_log,
+                    stats=stats,
+                    advanced_config=config.advanced_detection,
+                )
+                files_scanned = stats.get("files_scanned", 0)
+
+        # Baseline filtering
+        resolved_baseline = baseline_path or (repo_root / DEFAULT_BASELINE_FILENAME)
+        baseline_fingerprints = load_baseline(resolved_baseline) if resolved_baseline.is_file() else set()
+        new_findings, suppressed_findings = filter_baseline_findings(findings, baseline_fingerprints)
+        suppressed_count = len(suppressed_findings)
+
+        # Determine blocking status
+        blocking = [f for f in new_findings if f.is_blocking_for(config.block_on)]
+        is_blocked = len(blocking) > 0
+        status_str = "failed" if is_blocked else "passed"
+
+        # Emit report based on format
+        fmt = output_format.lower()
+        if fmt == "sarif":
+            render_sarif(new_findings, output_path=output_file, patterns=patterns)
+        elif fmt == "json":
+            render_scan_json(
+                findings=new_findings,
+                command="ci",
+                status=status_str,
+                suppressed_count=suppressed_count,
+                output_path=output_file,
+            )
+        else:
+            render_ci_summary(
+                findings=new_findings,
+                files_scanned=files_scanned,
+                baseline_suppressed=suppressed_count,
+                block_on=config.block_on,
+                ci_env=ci_env,
+                mode_description=mode_desc,
+                base_reference=target_base if "Changed" in mode_desc else None,
+                output_path=output_file,
+            )
+
+        # GitHub Actions workflow annotations and job summary
+        if ci_env.provider == "github":
+            if config.ci.annotations:
+                write_github_annotations(new_findings)
+            if config.ci.job_summary:
+                write_github_job_summary(
+                    findings=new_findings,
+                    files_scanned=files_scanned,
+                    baseline_suppressed=suppressed_count,
+                    block_on=config.block_on,
+                    ci_env=ci_env,
+                )
+
+        if is_blocked:
+            sys.exit(1)
+        sys.exit(0)
+
     except EnvGuardError as e:
         handle_cli_error(e, verbose=is_verbose)
         sys.exit(2)

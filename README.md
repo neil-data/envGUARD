@@ -6,9 +6,9 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/version-0.4.2-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
+[![Release](https://img.shields.io/badge/version-0.5.0-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
-[![Tests](https://img.shields.io/badge/tests-109%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-132%20passed-brightgreen.svg)](#testing)
 
 <p>
   <a href="#why-envguard">Why EnvGuard</a> ·
@@ -17,9 +17,10 @@
   <a href="#cli-commands">CLI Commands</a> ·
   <a href="#interactive-console">Interactive Console</a> ·
   <a href="#configuration">Configuration</a> ·
-  <a href="#cicd-integration">CI/CD</a> ·
+  <a href="#cicd-integration">CI/CD & GitHub</a> ·
   <a href="#roadmap">Roadmap</a>
 </p>
+
 
 </div>
 
@@ -53,15 +54,16 @@ All secret detection, line-by-line streaming, and SHA-256 baseline fingerprintin
 
 | Feature | Description |
 |---|---|
+| **CI/CD & GitHub Ecosystem** (`v0.5.0`) | Dedicated `envguard ci` command, environment detection (GitHub Actions, GitLab CI, CircleCI, Azure Pipelines, Jenkins), changed-file diff scanning (`--changed`, `--base`), SARIF 2.1.0 generation, GitHub Actions annotations, and job summaries. |
 | **Advanced Detection Engine** (`v0.4.0`) | Multi-signal detection combining known patterns, Shannon entropy ($H \ge 4.0$), structural JWT validation, and context heuristics. |
 | **Pre-Commit Gate** (`envguard check`) | Inspects only staged Git index content (`git show :path`), blocking risky commits before credentials touch Git history. |
-| **Directory Scanner** (`envguard scan`) | Line-by-line streaming scan that respects `.gitignore`, `.envguardignore`, and configuration exclusions, safely skipping binary and oversized files. |
+| **Directory Scanner** (`envguard scan`) | Line-by-line streaming scan with changed-file support (`--changed`, `--base`), file output (`--output`), respecting `.gitignore`, `.envguardignore`, and configuration exclusions. |
 | **Environment Drift Gate** (`envguard diff`) | Compares `.env` against `.env.example` by key only, flagging missing or stale variables without ever reading secret values. |
 | **Security Dashboard** (`envguard status`) | Severity-aware health check covering `.env` Git-tracking risk, credential leaks, baseline status, and hook status. |
 | **Cryptographic Baseline** (`envguard baseline create`) | Suppresses existing legacy findings via SHA-256 fingerprints. Adopt EnvGuard on an old codebase without blocking current work. Never writes plaintext secrets to disk. |
 | **Interactive Console** (`envguard menu` / `envguard ui`) | A built-in Rich dashboard, plus a dedicated Windows Terminal / Command Prompt launcher with a sandboxed demo mode. |
-| **Strict Secret Masking** | Full secrets are never printed in terminal output, JSON, or error messages (e.g. `AKIA••••••••••••MPLE`). Immediate hashing prevents plaintext in memory. |
-| **CI/CD Ready** | Standardized JSON output (`schema_version: 1`, with `detection_signals`, `entropy`, `provider`) and a strict exit-code contract. |
+| **Strict Secret Masking** | Full secrets are never printed in terminal output, JSON, SARIF, or annotations (e.g. `AKIA••••••••••••MPLE`). Immediate hashing prevents plaintext in memory. |
+| **Zero Telemetry & 100% Local** | Runs completely on your machine or CI runner. No cloud calls, no external API keys, zero network telemetry. |
 
 ---
 
@@ -69,7 +71,7 @@ All secret detection, line-by-line streaming, and SHA-256 baseline fingerprintin
 
 **Option 1 — From wheel**
 ```bash
-pip install dist/envguard-0.4.2-py3-none-any.whl
+pip install dist/envguard-0.5.0-py3-none-any.whl
 ```
 
 **Option 2 — Editable / developer mode**
@@ -82,8 +84,9 @@ pip install -e .
 Verify the install:
 ```bash
 envguard --version
-# EnvGuard version 0.4.2
+# EnvGuard version 0.5.0
 ```
+
 
 Works identically in cmd, PowerShell, and Unix shells.
 
@@ -130,11 +133,22 @@ envguard check --format json
 ---
 
 ### 2. `envguard scan`
-Recursively scans the working directory for secrets with real-time feedback.
+Recursively scans the working directory or specific files for secrets with real-time feedback.
 ```bash
+# Scan full working directory
 envguard scan
+
+# Scan specific path (positional or flag)
+envguard scan src/
 envguard scan --path ./src
+
+# Scan only changed files relative to base branch
+envguard scan --changed
+envguard scan --changed --base origin/main
+
+# Output formats: text, json, or sarif
 envguard scan --format json
+envguard scan --format sarif --output results.sarif
 envguard scan --verbose
 ```
 
@@ -159,7 +173,43 @@ Breakdown: 1 HIGH  •  1 MEDIUM  •  0 LOW
 
 ---
 
-### 3. `envguard diff`
+### 3. `envguard ci` (NEW in v0.5.0)
+Automated CI/CD security gate designed for pipelines and pull requests.
+```bash
+# Scan changed files against the default branch (main/master)
+envguard ci
+
+# Specify custom base branch or ref
+envguard ci --base origin/main
+
+# Full repository scan in CI
+envguard ci --all
+
+# Generate SARIF report for GitHub Code Scanning
+envguard ci --format sarif --output envguard.sarif
+
+# Standard JSON report
+envguard ci --format json --output envguard-report.json
+```
+
+**Key CI Features:**
+- **Auto-Environment Detection:** Recognizes GitHub Actions, GitLab CI, CircleCI, Azure Pipelines, Jenkins, or generic CI environments.
+- **Git Diff Scanning:** By default, scans only files modified or added between the base branch (`origin/main`, `main`, etc.) and the current commit, keeping CI fast.
+- **GitHub Actions Integration:**
+  - Emits native workflow annotations (`::error::` for HIGH/MEDIUM, `::warning::` for LOW).
+  - Automatically writes a rich Markdown security report into `$GITHUB_STEP_SUMMARY`.
+- **Baseline Awareness:** Automatically suppresses known legacy findings using `.envguard-baseline.json` or `--baseline <path>`.
+- **Zero Plaintext Leaks:** Masked secrets only; raw secrets are never written to logs, summaries, or SARIF files.
+- **Deterministic Exit Codes:**
+  - `0`: Pass (no blocking findings).
+  - `1`: Block (HIGH or MEDIUM findings detected).
+  - `2`: Runtime / Git error.
+  - `3`: Usage / CLI syntax error.
+
+---
+
+
+### 4. `envguard diff`
 Compares environment variable keys between `.env` and `.env.example`.
 ```bash
 envguard diff
@@ -185,7 +235,7 @@ Flags variables present in `.env` but missing from `.env.example`, and vice vers
 
 ---
 
-### 4. `envguard status`
+### 5. `envguard status`
 Displays a severity-aware project security dashboard — Git repo status, whether `.env` is accidentally tracked (critical), active findings by severity, `.env.example` sync, configuration, baseline, and hook install status.
 ```bash
 envguard status
@@ -214,7 +264,7 @@ envguard status
 
 ---
 
-### 5. `envguard install-hook`
+### 6. `envguard install-hook`
 Installs or safely appends the EnvGuard safety gate into `.git/hooks/pre-commit`.
 ```bash
 envguard install-hook
@@ -225,7 +275,7 @@ envguard install-hook
 
 ---
 
-### 6. `envguard baseline create`
+### 7. `envguard baseline create`
 Captures all existing repository findings into `.envguard-baseline.json`.
 ```bash
 envguard baseline create
@@ -235,7 +285,7 @@ Computes in-memory SHA-256 fingerprints. Subsequent scans suppress baseline find
 
 ---
 
-### 7. `envguard init`
+### 8. `envguard init`
 Initializes starter configuration (`.envguard.yml`) and ignore (`.envguardignore`) files safely without overwriting existing settings.
 ```bash
 envguard init
@@ -244,7 +294,7 @@ envguard init --format json
 
 ---
 
-### 8. `envguard doctor`
+### 9. `envguard doctor`
 Runs comprehensive system diagnostics (Python, Git, rules, configuration, pre-commit hook, ignore setup, baseline validity).
 ```bash
 envguard doctor
@@ -253,7 +303,7 @@ envguard doctor --format json
 
 ---
 
-### 9. `envguard explain` & `envguard rules list`
+### 10. `envguard explain` & `envguard rules list`
 Inspects built-in rules, explaining why they exist, severity, and remediation guidance.
 ```bash
 envguard explain aws-access-key
@@ -263,7 +313,7 @@ envguard rules list --format json
 
 ---
 
-### 10. Inline Suppressions
+### 11. Inline Suppressions
 Suppress intentional test secrets or fixtures directly in code using standard comment directives:
 ```python
 # Suppress all rules on this line:
@@ -300,7 +350,7 @@ Run `envguard menu` (or simply `envguard`) for the interactive console, or `envg
 
 Project:         my-project
 Path:            C:\Projects\my-project
-EnvGuard:        v0.3.1
+EnvGuard:        v0.5.0
 Git Repository:  Detected
 
 ┌─────────── Select an Option ────────────┐
@@ -364,7 +414,15 @@ advanced_detection:
 reporting:
   color: true
   show_fingerprints: false
+
+# CI/CD Configuration (v0.5.0)
+ci:
+  changed_files_only: true     # Only scan files changed relative to base ref
+  base_branch: null            # Auto-detect default branch (main/master) or specify ref
+  annotations: true            # Emit GitHub Actions ::error:: and ::warning:: annotations
+  job_summary: true            # Append Markdown summary to $GITHUB_STEP_SUMMARY
 ```
+
 
 > **Advanced Detection Engine (v0.4.0):** Combines pattern regexes, Shannon entropy calculations, structural JWT header decoding, and surrounding variable context into a centralized multi-signal scoring system. Known regex rules preserve their configured severity by design. UUIDs, Git hashes, SHA-256 digests, version numbers, and placeholders are excluded to minimize false positives. Configuration supports strict boundary validation on all fields.
 
@@ -415,23 +473,35 @@ reporting:
 
 ## CI/CD Integration
 
-EnvGuard is non-interactive and ready for automated PR and build checks. Add to `.github/workflows/envguard.yml`:
+EnvGuard is built from the ground up for continuous integration pipelines, automated pull request validation, and GitHub Code Scanning.
+
+### GitHub Actions Workflow
+
+EnvGuard includes a ready-to-use GitHub Actions workflow template at [`.github/workflows/envguard.yml`](file:///.github/workflows/envguard.yml):
 
 ```yaml
 name: EnvGuard Security Gate
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+  security-events: write
 
 jobs:
-  security-gate:
+  security-scan:
+    name: Secret & Drift Gate
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history so git can compare base branch
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -441,9 +511,31 @@ jobs:
       - name: Install EnvGuard
         run: pip install .
 
-      - name: Run EnvGuard Security Scan
-        run: envguard scan --format json
+      - name: Run EnvGuard CI Gate
+        run: |
+          envguard ci --format sarif --output envguard.sarif
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: envguard.sarif
 ```
+
+### GitHub Actions Native Features
+
+When running inside GitHub Actions (`GITHUB_ACTIONS=true`), EnvGuard automatically:
+1. **Emits Workflow Annotations**:
+   - `::error file={path},line={line},title={rule_name}::[EnvGuard] {description}`
+   - `::warning file={path},line={line},title={rule_name}::[EnvGuard] {description}`
+2. **Generates Rich Job Summaries**:
+   - Writes a clean, high-level summary table and breakdown to `$GITHUB_STEP_SUMMARY`, visible directly on the Actions job page.
+3. **Protects Credentials**:
+   - Only masked secret tokens (e.g., `AKIA••••••••••••MPLE`) are ever written to stdout, SARIF, or `$GITHUB_STEP_SUMMARY`.
+
+### Other CI Environments
+
+EnvGuard auto-detects and seamlessly runs inside **GitLab CI**, **CircleCI**, **Azure Pipelines**, and **Jenkins**. It automatically compares changed files against the default branch without any extra configuration needed.
 
 ---
 
@@ -454,76 +546,24 @@ pytest -v
 ```
 
 ```text
-tests/test_baseline.py::test_baseline_creation_and_no_plaintext_secrets PASSED
-tests/test_baseline.py::test_baseline_overwrite_safety PASSED
-tests/test_baseline.py::test_baseline_filters_known_and_identifies_new PASSED
-tests/test_config.py::test_missing_config_returns_defaults PASSED
-tests/test_config.py::test_valid_config_overrides_defaults PASSED
-tests/test_config.py::test_invalid_yaml_raises_configuration_error PASSED
-tests/test_config.py::test_unsupported_version_raises_configuration_error PASSED
-tests/test_config.py::test_invalid_severity_override_raises_configuration_error PASSED
-tests/test_config.py::test_unknown_rule_id_generates_warning PASSED
-tests/test_env_diff.py::test_env_diff_specification_case PASSED
-tests/test_env_diff.py::test_env_parser_supports_export_and_comments PASSED
-tests/test_env_diff.py::test_env_diff_synchronized PASSED
-tests/test_interactive.py::test_menu_exit_on_zero PASSED
-tests/test_interactive.py::test_menu_handles_invalid_input_then_exits PASSED
-tests/test_interactive.py::test_menu_actions_invoke_reusable_core_functions PASSED
-tests/test_interactive.py::test_safe_demo_uses_temp_directory_and_cleans_up PASSED
-tests/test_interactive.py::test_launch_separate_terminal_on_windows PASSED
-tests/test_interactive.py::test_launch_separate_terminal_fallback_cmd PASSED
-tests/test_interactive.py::test_launch_separate_terminal_non_windows_fallback PASSED
-tests/test_json_output.py::test_scan_json_output_clean PASSED
-tests/test_json_output.py::test_scan_json_output_with_findings PASSED
-tests/test_json_output.py::test_diff_json_output PASSED
-tests/test_json_output.py::test_status_json_output PASSED
-tests/test_patterns.py::test_load_default_patterns PASSED
-tests/test_patterns.py::test_mask_secret_never_reveals_full_secret PASSED
-tests/test_patterns.py::test_mask_secret_private_key PASSED
-tests/test_patterns.py::test_mask_secret_empty_or_edge_cases PASSED
-tests/test_performance.py::test_large_file_is_skipped PASSED
-tests/test_performance.py::test_exit_code_contract PASSED
-tests/test_scanner.py::test_detect_aws_access_key PASSED
-tests/test_scanner.py::test_detect_github_token PASSED
-tests/test_scanner.py::test_detect_stripe_key PASSED
-tests/test_scanner.py::test_detect_pem_private_key PASSED
-tests/test_scanner.py::test_ignore_placeholder_values PASSED
-tests/test_scanner.py::test_ignore_empty_api_key PASSED
-tests/test_scanner.py::test_scan_directory_skips_binary_files PASSED
-tests/test_ui.py::test_theme_format_severity PASSED
-tests/test_ui.py::test_theme_panels_creation PASSED
-tests/test_ui.py::test_scan_findings_renders_table_with_masked_secrets PASSED
-tests/test_ui.py::test_scan_findings_clean_success PASSED
-tests/test_ui.py::test_blocked_commit_screen_renders_remediation PASSED
-tests/test_check_passed_screens PASSED
-tests/test_ui.py::test_diff_report_rendering PASSED
-tests/test_ui.py::test_status_dashboard_rendering PASSED
-tests/test_ui.py::test_hook_installed_feedback PASSED
-tests/test_ui.py::test_interactive_menu_options_display PASSED
-tests/test_ui.py::test_interactive_menu_baseline_option PASSED
-tests/test_scoring.py::test_score_candidate_signal_weights PASSED
-tests/test_scoring.py::test_score_candidate_preserves_original_severity PASSED
-tests/test_scoring.py::test_classify_severity_thresholds PASSED
-tests/test_scoring.py::test_severity_order_monotonicity PASSED
-tests/test_jwt_detector.py::test_valid_jwt_structure_detection PASSED
-tests/test_jwt_detector.py::test_invalid_jwt_bad_header PASSED
-tests/test_jwt_detector.py::test_jwt_context_aware_severity PASSED
-tests/test_entropy_detector.py::test_calculate_entropy_basics PASSED
-tests/test_entropy_detector.py::test_is_uuid PASSED
-tests/test_entropy_detector.py::test_is_generic_hash_or_commit PASSED
-tests/test_provider_rules.py::test_aws_secret_access_key PASSED
-tests/test_provider_rules.py::test_google_api_key PASSED
-tests/test_provider_rules.py::test_google_service_account_context_required PASSED
-tests/test_provider_rules.py::test_azure_storage_connection_string PASSED
-tests/test_provider_rules.py::test_gitlab_token PASSED
-tests/test_provider_rules.py::test_npm_token PASSED
-tests/test_provider_rules.py::test_pypi_token PASSED
-tests/test_provider_rules.py::test_slack_token PASSED
-tests/test_provider_rules.py::test_discord_token PASSED
-tests/test_false_positives.py::test_false_positive_fixtures_are_not_flagged PASSED
 tests/test_advanced_config.py::test_valid_advanced_detection_config PASSED
+tests/test_baseline.py::test_baseline_creation_and_no_plaintext_secrets PASSED
+tests/test_ci.py::test_ci_detection_github_actions PASSED
+tests/test_ci.py::test_ci_detection_gitlab_ci PASSED
+tests/test_ci.py::test_ci_detection_azure_pipelines PASSED
+tests/test_ci.py::test_ci_detection_local PASSED
+tests/test_ci_output.py::test_ci_command_clean_exit_code PASSED
+tests/test_ci_output.py::test_ci_command_detects_secrets_and_blocks PASSED
+tests/test_git_utils.py::test_is_git_repository PASSED
+tests/test_git_utils.py::test_get_changed_files_between_commits PASSED
+tests/test_github_actions.py::test_write_github_annotations PASSED
+tests/test_github_actions.py::test_write_github_job_summary PASSED
+tests/test_sarif.py::test_sarif_generation_schema_compliance PASSED
+tests/test_sarif.py::test_sarif_severity_mappings PASSED
+tests/test_scanner.py::test_scan_files_explicit_list PASSED
+tests/test_v042_fixes.py::test_v042_version PASSED
 
-============================= 101 passed in 3.90s =============================
+============================= 132 passed in 8.25s =============================
 ```
 
 ---
@@ -537,9 +577,8 @@ tests/test_advanced_config.py::test_valid_advanced_detection_config PASSED
 | v0.2.5 | Rich terminal UI upgrade | Complete |
 | v0.3.0 | Smart Developer Workflow (Ignore, Suppressions, Doctor, Init, Explain) | Complete |
 | v0.3.1 | Configuration Stability & Production Reliability Patch | Complete |
-| v0.4.0 | Advanced Detection Engine (Entropy, JWT, Expanded Cloud Providers, Context Analysis) | Complete |
-| **v0.4.2** | **Stability & Production Diagnostics Patch (Bug Fixes, High-Entropy Code Filtering, Baseline Fixes, Doctor Reliability)** | **Current Release ✅** |
-| v0.5.0 | CI/CD & GitHub ecosystem action | Planned |
+| v0.4.2 | Stability & Production Diagnostics Patch | Complete |
+| **v0.5.0** | **CI/CD & GitHub Ecosystem (CI Detection, Changed-Files Diff, SARIF 2.1.0, GitHub Annotations & Step Summaries)** | **Current Release ✅** |
 | v0.6.0 | Team/project workflows & multi-repo policies | Planned |
 | v1.0.0 | Stable production release | Target 🚀 |
 

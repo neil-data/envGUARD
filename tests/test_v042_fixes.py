@@ -16,12 +16,13 @@ from envguard.scanner import scan_directory, scan_lines, scan_text
 
 
 def test_v042_version():
-    """Verify version bumped to 0.4.2."""
-    assert __version__ == "0.4.2"
+    """Verify version bumped to at least 0.4.2."""
+    assert __version__ >= "0.4.2"
     runner = CliRunner()
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.4.2" in result.output
+    assert __version__ in result.output
+
 
 
 def test_bug_1_doctor_git_far_above(tmp_path, monkeypatch):

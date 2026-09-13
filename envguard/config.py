@@ -16,6 +16,15 @@ SUPPORTED_VERSIONS = {1}
 
 
 @dataclass
+class CIConfig:
+    """CI/CD workflow and pipeline automation settings."""
+    changed_files_only: bool = True
+    base_branch: Optional[str] = None
+    annotations: bool = True
+    job_summary: bool = True
+
+
+@dataclass
 class EnvGuardConfig:
     version: int = 1
     max_file_size_mb: float = DEFAULT_MAX_FILE_SIZE_MB
@@ -25,6 +34,7 @@ class EnvGuardConfig:
     placeholders: Set[str] = field(default_factory=set)
     block_on: List[str] = field(default_factory=lambda: list(DEFAULT_BLOCK_ON))
     advanced_detection: AdvancedDetectionConfig = field(default_factory=AdvancedDetectionConfig)
+    ci: CIConfig = field(default_factory=CIConfig)
     warnings: List[str] = field(default_factory=list)
     config_file_path: Optional[Path] = None
 
@@ -381,7 +391,84 @@ def load_config(root_dir: Optional[Path] = None, config_path: Optional[Path] = N
             context_enabled=context_enabled,
         )
 
-    # 9. Check for unknown rule IDs to produce warnings
+    # 9. CI section
+    ci_config = CIConfig()
+    ci_section = raw_data.get("ci")
+    if ci_section is not None:
+        if not isinstance(ci_section, dict):
+            raise ConfigurationError(
+                "'ci' must be a dictionary",
+                field="ci",
+                expected="dictionary",
+                received=type(ci_section).__name__,
+                config_path=config_filename,
+            )
+
+        changed_only = ci_config.changed_files_only
+        if "changed_files_only" in ci_section:
+            cfo = ci_section["changed_files_only"]
+            if not isinstance(cfo, bool):
+                raise ConfigurationError(
+                    "'ci.changed_files_only' must be a boolean",
+                    field="ci.changed_files_only",
+                    expected="boolean",
+                    received=type(cfo).__name__,
+                    config_path=config_filename,
+                )
+            changed_only = cfo
+
+        base_b = ci_config.base_branch
+        if "base_branch" in ci_section:
+            bb = ci_section["base_branch"]
+            if bb is not None and not isinstance(bb, str):
+                raise ConfigurationError(
+                    "'ci.base_branch' must be a string or null",
+                    field="ci.base_branch",
+                    expected="string or null",
+                    received=type(bb).__name__,
+                    config_path=config_filename,
+                )
+            base_b = bb
+
+        annot = ci_config.annotations
+        if "annotations" in ci_section:
+            an = ci_section["annotations"]
+            if not isinstance(an, bool):
+                raise ConfigurationError(
+                    "'ci.annotations' must be a boolean",
+                    field="ci.annotations",
+                    expected="boolean",
+                    received=type(an).__name__,
+                    config_path=config_filename,
+                )
+            annot = an
+
+        summary = ci_config.job_summary
+        if "job_summary" in ci_section:
+            js = ci_section["job_summary"]
+            if not isinstance(js, bool):
+                raise ConfigurationError(
+                    "'ci.job_summary' must be a boolean",
+                    field="ci.job_summary",
+                    expected="boolean",
+                    received=type(js).__name__,
+                    config_path=config_filename,
+                )
+            summary = js
+
+        known_ci_keys = {"changed_files_only", "base_branch", "annotations", "job_summary"}
+        for k in ci_section:
+            if k not in known_ci_keys:
+                warnings.append(f"Unknown key '{k}' in ci configuration")
+
+        ci_config = CIConfig(
+            changed_files_only=changed_only,
+            base_branch=base_b,
+            annotations=annot,
+            job_summary=summary,
+        )
+
+    # 10. Check for unknown rule IDs to produce warnings
     from envguard.patterns import load_default_patterns
     known_rules = {p.id for p in load_default_patterns()}
 
@@ -401,6 +488,7 @@ def load_config(root_dir: Optional[Path] = None, config_path: Optional[Path] = N
         placeholders=placeholders,
         block_on=block_on,
         advanced_detection=adv_config,
+        ci=ci_config,
         warnings=warnings,
         config_file_path=file_to_load,
     )
