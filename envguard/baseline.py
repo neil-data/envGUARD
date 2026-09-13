@@ -42,7 +42,27 @@ def load_baseline(baseline_path: Path) -> Set[str]:
     return fingerprints
 
 
+def inspect_baseline(baseline_path: Path) -> Tuple[bool, int, Optional[str]]:
+    """Inspect baseline file validity and fingerprint count.
+
+    Returns:
+        (exists, count, error_message)
+        - If file does not exist: (False, 0, None)
+        - If valid: (True, count, None)
+        - If invalid: (True, 0, error_message)
+    """
+    if not baseline_path.is_file():
+        return False, 0, None
+
+    try:
+        fingerprints = load_baseline(baseline_path)
+        return True, len(fingerprints), None
+    except Exception as e:
+        return True, 0, str(e)
+
+
 def filter_baseline_findings(
+
     findings: List[ScanFinding],
     baseline_fingerprints: Set[str],
 ) -> Tuple[List[ScanFinding], List[ScanFinding]]:

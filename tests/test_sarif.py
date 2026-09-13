@@ -1,14 +1,14 @@
 """Tests for SARIF 2.1.0 generation module (envguard/sarif.py)."""
 
 import json
+from envguard import __version__
 from envguard.patterns import load_default_patterns
 from envguard.sarif import generate_sarif
 from envguard.scanner import ScanFinding
 
 
-def test_sarif_structure_and_schema():
-    """Verify SARIF 2.1.0 schema, version, and tool driver metadata."""
-    patterns = load_default_patterns()
+def test_sarif_generation_schema_compliance():
+    """Verify SARIF 2.1.0 output complies with schema and omits raw secrets."""
     raw_secret = "AKIAIOSFODNN7EXAMPLE"
     findings = [
         ScanFinding(
@@ -19,12 +19,17 @@ def test_sarif_structure_and_schema():
             line_number=18,
             raw_value=raw_secret,
             masked_value="AKIA••••••••••••MPLE",
-            fingerprint="sha256:abc123def456",
-            line_snippet="AWS_KEY = 'AKIAIOSFODNN7EXAMPLE'",
+            fingerprint="hash123",
+            line_snippet=f"api_key = '{raw_secret}'",
+            detection_signals=["regex", "known_pattern"],
+            entropy=4.2,
+            provider="AWS",
         )
     ]
+    patterns = load_default_patterns()
 
-    sarif = generate_sarif(findings, tool_version="0.5.0", patterns=patterns)
+
+    sarif = generate_sarif(findings, tool_version=__version__, patterns=patterns)
 
     # Validate high-level fields
     assert sarif["version"] == "2.1.0"
@@ -34,7 +39,7 @@ def test_sarif_structure_and_schema():
     run = sarif["runs"][0]
     driver = run["tool"]["driver"]
     assert driver["name"] == "EnvGuard"
-    assert driver["semanticVersion"] == "0.5.0"
+    assert driver["semanticVersion"] == __version__
     assert "https://github.com/neil-data/envGUARD" in driver["informationUri"]
     assert len(driver["rules"]) > 0
 
@@ -63,8 +68,9 @@ def test_sarif_severity_mappings():
         ScanFinding("rule-l", "Rule L", "LOW", "f3.py", 3, "raw3", "masked3", "fp3"),
     ]
 
-    sarif = generate_sarif(findings, tool_version="0.5.0")
+    sarif = generate_sarif(findings, tool_version=__version__)
     results = sarif["runs"][0]["results"]
+
     assert results[0]["level"] == "error"
     assert results[1]["level"] == "warning"
     assert results[2]["level"] == "note"

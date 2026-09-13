@@ -1,4 +1,4 @@
-"""Project initializer for EnvGuard v0.5.0.
+"""Project initializer for EnvGuard v0.5.3.
 
 Creates starter .envguard.yml and .envguardignore without overwriting.
 """
@@ -6,7 +6,8 @@ Creates starter .envguard.yml and .envguardignore without overwriting.
 from dataclasses import dataclass
 from pathlib import Path
 
-version = "0.5.0"
+version = "0.5.3"
+
 
 default_envguard_yml = """# EnvGuard Configuration
 version: 1

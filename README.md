@@ -6,9 +6,10 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/version-0.5.0-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
+[![Release](https://img.shields.io/badge/version-0.5.3-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
-[![Tests](https://img.shields.io/badge/tests-132%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-137%20passed-brightgreen.svg)](#testing)
+
 
 <p>
   <a href="#why-envguard">Why EnvGuard</a> ·
@@ -70,7 +71,7 @@ All secret detection, line-by-line streaming, and SHA-256 baseline fingerprintin
 
 **Option 1 — From wheel**
 ```bash
-pip install dist/envguard-0.5.0-py3-none-any.whl
+pip install dist/envguard-0.5.3-py3-none-any.whl
 ```
 
 **Option 2 — Editable / developer mode**
@@ -83,7 +84,7 @@ pip install -e .
 Verify the install:
 ```bash
 envguard --version
-# EnvGuard version 0.5.0
+# EnvGuard version 0.5.3
 ```
 
 Works identically in cmd, PowerShell, and Unix shells.
@@ -337,7 +338,7 @@ Run `envguard menu` (or simply `envguard`) for the interactive console, or `envg
 
 Project:         my-project
 Path:            C:\Projects\my-project
-EnvGuard:        v0.5.0
+EnvGuard:        v0.5.3
 Git Repository:  Detected
 
 ┌─────────── Select an Option ────────────┐
@@ -572,10 +573,11 @@ tests/test_v042_fixes.py::test_v042_version PASSED
 | v0.3.1 | Configuration stability & production reliability patch | Complete |
 | v0.4.0 | Advanced Detection Engine (entropy, JWT validation, expanded cloud provider rules) | Complete |
 | v0.4.2 | Stability & production diagnostics patch | Complete |
-| **v0.5.0** | **CI/CD & GitHub Ecosystem (CI detection, changed-file diff, SARIF 2.1.0, GitHub annotations & step summaries)** | **Current Release** |
-| v0.5.3 | Baseline validation & entropy detection fixes | Planned |
+| v0.5.0 | CI/CD & GitHub Ecosystem (CI detection, changed-file diff, SARIF 2.1.0, GitHub annotations & step summaries) | Complete |
+| **v0.5.3** | **Bug Fix Release (Baseline Consistency, Independent Entropy Rule, Output Confirmation)** | **Current Release ✅** |
 | v0.6.0 | Team/project workflows & multi-repo policies | Planned |
 | v1.0.0 | Stable production release | Target |
+
 
 ---
 

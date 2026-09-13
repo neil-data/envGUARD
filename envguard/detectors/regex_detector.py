@@ -40,6 +40,10 @@ def detect_regex_candidates(
     for pattern in patterns:
         if not pattern.enabled:
             continue
+        # generic-high-entropy-secret is an algorithmic entropy rule evaluated by the entropy detector
+        if pattern.id == "generic-high-entropy-secret":
+            continue
+
 
         for secret_val, start, end in pattern.find_matches(line):
             # Special validation for Google Service Account Key:

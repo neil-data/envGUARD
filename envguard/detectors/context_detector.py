@@ -35,6 +35,13 @@ NON_SECRET_KEYWORDS = (
     "trace_id",
     "request_id",
     "correlation_id",
+    "uses",
+    "image",
+    "runs-on",
+    "file",
+    "path",
+    "filename",
+    "filepath",
 )
 
 ASSIGNMENT_REGEX = re.compile(

@@ -131,9 +131,10 @@ def deduplicate_and_merge_candidates(
         # Deterministic precedence:
         # 1. Specific provider regex (score 50) e.g. aws-*, google-*, github-*, gitlab-*, npm-*, pypi-*, slack-*, discord-*, azure-*, stripe-*
         # 2. JWT detector (score 40)
-        # 3. Generic regex assignments e.g. api-key-assignment, token-assignment (score 30)
-        # 4. Generic credential / generic secret regex (score 20)
-        # 5. Generic entropy (score 10)
+        # 3. Specific regex assignments e.g. api-key-assignment, token-assignment (score 30)
+        # 4. Generic high entropy secret (score 25)
+        # 5. Generic credential / generic secret regex (score 20)
+        # 6. Other / fallback (score 10)
         def specificity_key(item: Tuple[DetectionCandidate, ScoredResult]) -> int:
             c, _ = item
             r_id = c.rule_id or ""
@@ -144,9 +145,12 @@ def deduplicate_and_merge_candidates(
                 return 40
             if c.source == "regex" and not r_id.startswith("generic-"):
                 return 30
+            if c.rule_id == "generic-high-entropy-secret":
+                return 25
             if c.source == "regex":
                 return 20
             return 10
+
 
         cluster.sort(key=specificity_key, reverse=True)
         primary_cand, primary_scored = cluster[0]

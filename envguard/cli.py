@@ -25,6 +25,7 @@ from envguard.baseline import (
     DEFAULT_BASELINE_FILENAME,
     create_baseline,
     filter_baseline_findings,
+    inspect_baseline,
     load_baseline,
 )
 from envguard.ci import detect_ci_environment
@@ -819,11 +820,11 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
         # 5. Configuration & Baseline status
         baseline_file = repo_root / DEFAULT_BASELINE_FILENAME
         baseline_status = None
-        if baseline_file.is_file():
-            try:
-                b_data = load_baseline(baseline_file)
-                baseline_status = f"[green]ACTIVE ({len(b_data.fingerprints)} entries)[/green]"
-            except Exception:
+        exists, b_count, b_error = inspect_baseline(baseline_file)
+        if exists:
+            if b_error is None:
+                baseline_status = f"[green]ACTIVE ({b_count} entries)[/green]"
+            else:
                 baseline_status = "[yellow]INVALID[/yellow]"
 
         config_status = f"[green]VALID ({config_file.name})[/green]" if config_file and config_file.is_file() else "[dim]DEFAULT[/dim]"

@@ -55,6 +55,12 @@ def is_code_expression(value: str) -> bool:
     clean = value.strip()
     if not clean:
         return False
+    # Type hints / generic subscripts: e.g. Optional[...], List[...]
+    if ("[" in clean and "]" in clean) or re.search(r"^(?:Optional|List|Dict|Tuple|Set|Union)\[", clean):
+        return True
+    # Attribute access / dotted identifier: e.g. config.disabled_rules, self.foo, a.b.c
+    if re.search(r"^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_]", clean):
+        return True
     # Check for known modules, functions, or runtime calls
     code_indicators = (
         "os.environ",
@@ -81,6 +87,66 @@ def is_code_expression(value: str) -> bool:
     return False
 
 
+def is_env_or_code_context(val: str, line: str) -> bool:
+    """Check if a string literal appears inside an environment lookup or re.compile call."""
+    if not line:
+        return False
+    escaped = re.escape(val)
+    patterns = (
+        r"""(?:os\.environ(?:\.get)?|os\.getenv|environ\.get|System\.getenv|process\.env)\s*[\(\[]\s*['"]""" + escaped + r"""['"]""",
+        r"""re\.compile\s*\(\s*(?:r)?['"]""" + escaped + r"""['"]""",
+        r"""(?:config|settings|request|params|args)\.get\s*\(\s*['"]""" + escaped + r"""['"]""",
+    )
+    for pat in patterns:
+        if re.search(pat, line):
+            return True
+    return False
+
+
+def is_regex_literal(value: str, line: str = "") -> bool:
+    """Check if value represents a regular expression pattern rather than a credential."""
+    clean = value.strip().strip("'\"")
+    if not clean:
+        return False
+
+    # Check if prefixed with r' or r" in line
+    if line:
+        escaped = re.escape(value)
+        if re.search(r"""r['"]""" + escaped + r"""['"]""", line):
+            return True
+
+    # Characteristic regex constructs and character classes
+    regex_indicators = (
+        r"[a-zA-Z",
+        r"[0-9",
+        r"[A-Z",
+        r"[a-z",
+        r"[A-Za-z",
+        r"\d",
+        r"\w",
+        r"\s",
+        r"\b",
+        r"(?:",
+        r"(?i)",
+        r"(?m)",
+        r"(?P<",
+        r"(?=",
+        r"(?!",
+        r"(?<= ",
+        r"(?<!",
+        r"^[",
+        r"]$",
+    )
+    if any(ind in clean for ind in regex_indicators):
+        return True
+
+    # Anchored patterns with regex meta characters
+    if (clean.startswith("^") or clean.endswith("$")) and any(c in clean for c in "*+?{}[]()|\\"):
+        return True
+
+    return False
+
+
 def is_credential_variable(var_name: str) -> bool:
     """Check if a variable name suggests secret or credential storage."""
     clean = var_name.strip().lower()
@@ -98,55 +164,100 @@ def extract_assignment_candidates(line: str) -> List[Tuple[str, str]]:
     return candidates
 
 
+def extract_literal_candidates(line: str) -> List[Tuple[str, str]]:
+    """Extract assignment pairs and standalone quoted string literals from a line."""
+    candidates: List[Tuple[str, str]] = []
+    seen_values = set()
+
+    # 1. Assignment pairs (var_name, val)
+    for var_name, val in extract_assignment_candidates(line):
+        clean_val = val.strip().strip("'\"")
+        if clean_val and clean_val not in seen_values:
+            candidates.append((var_name, clean_val))
+            seen_values.add(clean_val)
+
+    # 2. Standalone quoted string literals
+    for match in re.finditer(r"""(?<![a-zA-Z0-9_])(['"])(.*?)\1""", line):
+        clean_val = match.group(2).strip()
+        if clean_val and clean_val not in seen_values:
+            candidates.append(("", clean_val))
+            seen_values.add(clean_val)
+
+    return candidates
+
+
 def detect_entropy_candidates(
     line: str,
     line_number: int,
     file_path: str,
     config: AdvancedDetectionConfig,
 ) -> List[DetectionCandidate]:
-    """Scan an assignment-like line for high-entropy secret candidates."""
+    """Scan a line for high-entropy secret candidates, running independently when regex rules miss."""
     if not config.entropy_enabled:
         return []
 
     candidates: List[DetectionCandidate] = []
-    extracted = extract_assignment_candidates(line)
+    extracted = extract_literal_candidates(line)
 
     for var_name, val in extracted:
-        # 1. Skip placeholders immediately
-        if is_placeholder(val):
-            continue
-
-        # 2. Skip code expressions (e.g. os.environ.get("KEY"), re.compile(...), method calls)
-        if is_code_expression(val):
-            continue
-
-        # 3. Skip UUIDs
-        if is_uuid(val):
-            continue
-
-        # 4. Skip generic hex hashes unless explicitly in credential context
-        context_res = analyze_context(var_name, val)
-        if is_generic_hash_or_commit(val) and not context_res.is_credential_context:
-            continue
-
-        # 5. Context check: high entropy is only an alert in credential variable contexts
-        # (standalone random strings in code like docstrings, dict keys, or generic variables should not be flagged as secrets)
-        if not context_res.is_credential_context and not is_credential_variable(var_name):
-            continue
-
-        # 6. Length check
+        # 1. Length check
         if len(val) < config.entropy_min_length:
             continue
 
-        # 7. Shannon entropy check
+        # 2. Secrets are discrete tokens; skip multi-word strings containing whitespace
+        if any(c.isspace() for c in val):
+            continue
+
+        # 3. Skip URLs, schema references, file paths, and action/image references
+        if val.startswith("http://") or val.startswith("https://") or "://" in val or val.startswith("/") or val.startswith("./"):
+            continue
+        if ("/" in val and ("@" in val or ":" in val)) or re.search(r"\.(?:md|yml|yaml|json|toml|txt|html|py|js|ts|css|sh|xml|csv|tar\.gz|zip)$", val, re.IGNORECASE):
+            continue
+
+        # 4. Skip format strings or template expressions
+        if "{" in val or "}" in val or "%" in val:
+            continue
+
+        # 5. Skip placeholders immediately
+        if is_placeholder(val):
+            continue
+
+
+        # 3. Skip code expressions (e.g. os.environ.get, os.getenv, method calls)
+        if is_code_expression(val) or is_env_or_code_context(val, line):
+            continue
+
+        # 4. Skip regex literals
+        if is_regex_literal(val, line):
+            continue
+
+        # 5. Skip UUIDs
+        if is_uuid(val):
+            continue
+
+        # 6. Context check
+        context_res = analyze_context(var_name, val) if var_name else None
+
+        # 7. Skip generic hex hashes unless explicitly in credential context
+        if is_generic_hash_or_commit(val) and not (context_res and context_res.is_credential_context):
+            continue
+
+        if HEX_ONLY_REGEX.match(val) and not (context_res and context_res.is_credential_context):
+            continue
+
+        # 8. Skip non-secret context (e.g. session_id, commit, checksum, version)
+        if context_res and context_res.is_non_secret_context:
+            continue
+
+        # 9. Shannon entropy check
         entropy = calculate_entropy(val)
         if entropy < config.entropy_threshold:
             continue
 
         signals: List[str] = ["high_entropy", "token_like_length", "non_placeholder_value"]
 
-        # 8. Apply context signals
-        if context_res.signals:
+        # 10. Apply context signals if available
+        if context_res and context_res.signals:
             signals.extend(context_res.signals)
 
         # Immediate masking and fingerprinting
@@ -172,6 +283,7 @@ def detect_entropy_candidates(
         candidates.append(candidate)
 
     return candidates
+
 
 
 def analyze_entropy_and_context(

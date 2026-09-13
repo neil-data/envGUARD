@@ -15,7 +15,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from envguard.baseline import create_baseline, load_baseline
+from envguard.baseline import create_baseline, inspect_baseline, load_baseline
 from envguard.config import load_config
 from envguard.env_diff import compare_env_files
 from envguard.git_handler import (
@@ -110,12 +110,13 @@ def run_status_action(cwd: Path) -> None:
 
     baseline_file = repo_root / ".envguard-baseline.json"
     baseline_status = None
-    if baseline_file.is_file():
-        try:
-            b_data = load_baseline(baseline_file)
-            baseline_status = f"[green]ACTIVE ({len(b_data.fingerprints)} entries)[/green]"
-        except Exception:
+    exists, b_count, b_error = inspect_baseline(baseline_file)
+    if exists:
+        if b_error is None:
+            baseline_status = f"[green]ACTIVE ({b_count} entries)[/green]"
+        else:
             baseline_status = "[yellow]INVALID[/yellow]"
+
 
     print_status_dashboard(
         is_git=is_git,

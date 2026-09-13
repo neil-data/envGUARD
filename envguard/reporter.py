@@ -58,11 +58,13 @@ def write_output(content: str, output_path: Optional[Path] = None) -> None:
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(content, encoding="utf-8")
+            console.print(f"[green]✓[/green] Output written to: {output_path}")
         except Exception as e:
             from envguard.exceptions import ScanError
             raise ScanError(f"Failed to write output file '{output_path}': {e}")
     else:
         print(content)
+
 
 
 def print_json(data: Dict[str, Any], output_path: Optional[Path] = None) -> None:

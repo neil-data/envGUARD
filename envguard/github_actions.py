@@ -1,4 +1,4 @@
-"""GitHub Actions workflow integration for EnvGuard v0.5.0.
+"""GitHub Actions workflow integration for EnvGuard v0.5.3.
 
 Provides native GitHub Actions workflow annotations (::error::, ::warning::, ::notice::)
 and rich Markdown step summaries (GITHUB_STEP_SUMMARY).

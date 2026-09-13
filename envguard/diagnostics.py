@@ -19,7 +19,7 @@ import sys
 from typing import Dict, List, Optional
 
 from envguard import __version__
-from envguard.baseline import load_baseline
+from envguard.baseline import inspect_baseline, load_baseline
 from envguard.config import load_config
 from envguard.git_handler import get_repo_root, is_git_repo
 from envguard.hook import is_hook_installed
@@ -151,15 +151,15 @@ def run_diagnostics(repo_path: Path) -> DiagnosticReport:
 
     # 9. Baseline
     baseline_f = repo_path / ".envguard-baseline.json"
-    if baseline_f.is_file():
-        try:
-            fingerprints = load_baseline(baseline_f)
-            count = len(fingerprints)
-            report.checks.append(DiagnosticCheck("Historical Baseline", "PASS", f"present ({count} fingerprints)"))
-        except Exception as e:
-            report.checks.append(DiagnosticCheck("Historical Baseline", "ERROR", f"Baseline file is corrupt: {e}", "Run 'envguard baseline create' to regenerate."))
+    exists, b_count, b_error = inspect_baseline(baseline_f)
+    if exists:
+        if b_error is None:
+            report.checks.append(DiagnosticCheck("Historical Baseline", "PASS", f"present ({b_count} fingerprints)"))
+        else:
+            report.checks.append(DiagnosticCheck("Historical Baseline", "ERROR", f"Baseline file is corrupt: {b_error}", "Run 'envguard baseline create' to regenerate."))
     else:
         report.checks.append(DiagnosticCheck("Historical Baseline", "PASS", "No baseline file (standard)"))
+
 
     # Determine overall status
     if report.error_count > 0:
