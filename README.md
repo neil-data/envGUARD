@@ -81,7 +81,7 @@ pip install -e .
 Verify the install:
 ```bash
 envguard --version
-# EnvGuard version 0.3.0
+# EnvGuard version 0.3.1
 ```
 
 Works identically in cmd, PowerShell, and Unix shells.
