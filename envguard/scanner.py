@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import hashlib
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 import pathspec
 
 from envguard.detectors import (
@@ -43,6 +43,28 @@ def compute_fingerprint(rule_id: str, file_path: str, raw_secret: str) -> str:
     return f"sha256:{digest}"
 
 
+def determine_blocking(
+    severity: str,
+    local_block_on: Any,
+    org_block_on: Optional[Any] = None,
+) -> Optional[str]:
+    """Determine if a severity is blocked and identify the blocking policy source.
+
+    Returns:
+        "organization & local policy", "organization policy", "local policy", or None.
+    """
+    in_org = org_block_on is not None and severity in org_block_on
+    in_local = severity in local_block_on
+
+    if in_org and in_local:
+        return "organization & local policy"
+    elif in_org:
+        return "organization policy"
+    elif in_local:
+        return "local policy"
+    return None
+
+
 @dataclass
 class ScanFinding:
     rule_id: str
@@ -57,6 +79,8 @@ class ScanFinding:
     detection_signals: List[str] = field(default_factory=list)
     entropy: Optional[float] = None
     provider: Optional[str] = None
+    repository: Optional[str] = None
+    blocked_by: Optional[str] = None
 
     @property
     def confidence(self) -> str:
@@ -80,8 +104,26 @@ class ScanFinding:
         """Default blocking check for HIGH and MEDIUM findings."""
         return self.severity in ("HIGH", "MEDIUM")
 
-    def is_blocking_for(self, block_on: List[str]) -> bool:
-        """Check if finding is blocking according to configured block_on list."""
+    def determine_blocking(
+        self,
+        local_block_on: Any,
+        org_block_on: Optional[Any] = None,
+    ) -> Optional[str]:
+        """Determine if this finding is blocked and identify the blocking policy source.
+
+        Returns:
+            "organization & local policy", "organization policy", "local policy", or None.
+        """
+        return determine_blocking(self.severity, local_block_on, org_block_on)
+
+    def is_blocking_for(
+        self,
+        block_on: List[str],
+        org_block_on: Optional[List[str]] = None,
+    ) -> bool:
+        """Check if finding is blocking according to configured block_on list and optional org policy."""
+        if org_block_on is not None:
+            return self.determine_blocking(block_on, org_block_on) is not None
         return self.severity in block_on
 
 

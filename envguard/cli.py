@@ -29,7 +29,7 @@ from envguard.baseline import (
     load_baseline,
 )
 from envguard.ci import detect_ci_environment
-from envguard.config import find_config_file, load_config
+from envguard.config import find_config_file, find_org_config_file, load_config
 from envguard.env_diff import compare_env_files
 from envguard.exceptions import (
     BaselineError,
@@ -56,6 +56,7 @@ from envguard.github_actions import write_github_annotations, write_github_job_s
 from envguard.diagnostics import run_diagnostics
 from envguard.hook import install_pre_commit_hook, is_hook_installed
 from envguard.initializer import init_project
+from envguard.multi_repo import parse_repo_targets, scan_multiple_repositories
 from envguard.patterns import load_default_patterns
 from envguard.reporter import (
     console,
@@ -66,6 +67,7 @@ from envguard.reporter import (
     print_diff_report,
     print_hook_installed,
     print_init_result,
+    print_multi_repo_summary,
     print_rule_explanation,
     print_rules_list,
     print_scan_findings,
@@ -76,6 +78,7 @@ from envguard.reporter import (
     render_doctor_json,
     render_explain_json,
     render_init_json,
+    render_multi_repo_json,
     render_rules_json,
     render_sarif,
     render_scan_json,
@@ -253,6 +256,13 @@ def ui_cmd() -> None:
     default=None,
     help="Path to baseline file (.envguard-baseline.json).",
 )
+@click.option(
+    "--repos",
+    "-r",
+    "repos",
+    multiple=True,
+    help="Repository directory (or comma-separated list) to scan in multi-repo mode.",
+)
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
 @click.pass_context
 def scan_cmd(
@@ -265,6 +275,7 @@ def scan_cmd(
     base: Optional[str],
     baseline_path: Optional[Path],
     verbose: bool,
+    repos: tuple[str, ...] = (),
 ) -> None:
     """Scan the working directory recursively for secrets, respecting .gitignore and config."""
     is_verbose = verbose or ctx.obj.get("VERBOSE", False)
@@ -273,6 +284,21 @@ def scan_cmd(
     target_dir = target if target.is_dir() else target.parent
 
     try:
+        if repos:
+            repo_targets = parse_repo_targets(list(repos))
+            multi_result = scan_multiple_repositories(
+                repo_targets=repo_targets,
+                verbose=is_verbose,
+            )
+            fmt = output_format.lower()
+            if fmt == "sarif":
+                render_sarif(multi_result.all_findings, output_path=output_file)
+            elif fmt == "json":
+                render_multi_repo_json(multi_result, output_path=output_file)
+            else:
+                print_multi_repo_summary(multi_result)
+            sys.exit(multi_result.exit_code)
+
         config = load_config(root_dir=target_dir)
 
         if is_verbose and config.warnings:
@@ -363,6 +389,13 @@ def scan_cmd(
 
         baseline_fingerprints = load_baseline(resolved_baseline) if resolved_baseline else set()
         new_findings, suppressed_findings = filter_baseline_findings(findings, baseline_fingerprints)
+
+        for f in new_findings:
+            f.repository = target_dir.name
+            f.blocked_by = f.determine_blocking(
+                local_block_on=config.local_block_on or config.block_on,
+                org_block_on=config.org_config.block_on if config.org_config else None,
+            )
 
         fmt = output_format.lower()
         if fmt == "sarif":
@@ -547,7 +580,13 @@ def ci_cmd(
         suppressed_count = len(suppressed_findings)
 
         # Determine blocking status
-        blocking = [f for f in new_findings if f.is_blocking_for(config.block_on)]
+        for f in new_findings:
+            f.repository = repo_root.name
+            f.blocked_by = f.determine_blocking(
+                local_block_on=config.local_block_on or config.block_on,
+                org_block_on=config.org_config.block_on if config.org_config else None,
+            )
+        blocking = [f for f in new_findings if f.blocked_by is not None]
         is_blocked = len(blocking) > 0
         status_str = "failed" if is_blocked else "passed"
 
@@ -673,8 +712,18 @@ def check_cmd(ctx: click.Context, output_format: str, baseline_path: Optional[Pa
         baseline_fingerprints = load_baseline(resolved_baseline) if resolved_baseline else set()
         new_findings, suppressed_findings = filter_baseline_findings(findings, baseline_fingerprints)
 
-        blocking_findings = [f for f in new_findings if f.is_blocking_for(config.block_on)]
-        low_findings = [f for f in new_findings if not f.is_blocking_for(config.block_on)]
+        blocking_findings = []
+        low_findings = []
+        for f in new_findings:
+            f.repository = repo_root.name
+            f.blocked_by = f.determine_blocking(
+                local_block_on=config.local_block_on or config.block_on,
+                org_block_on=config.org_config.block_on if config.org_config else None,
+            )
+            if f.blocked_by is not None:
+                blocking_findings.append(f)
+            else:
+                low_findings.append(f)
 
         if output_format.lower() == "json":
             render_check_json(
@@ -848,6 +897,30 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
         else:
             config_status = "[dim]DEFAULT[/dim]"
 
+        # 5b. Organization Policy status
+        org_file = config.org_config_path or find_org_config_file(cwd) or find_org_config_file(repo_root)
+        org_status = None
+        org_policy_data = None
+        if org_file and org_file.is_file():
+            if config.org_config and not config.org_config.warnings:
+                org_status = f"[green]ACTIVE ({org_file.name})[/green]"
+            else:
+                org_status = f"[yellow]WARNING ({org_file.name})[/yellow]"
+            org_policy_data = {
+                "present": True,
+                "file": org_file.name,
+                "path": str(org_file).replace("\\", "/"),
+                "status": "ACTIVE" if (config.org_config and not config.org_config.warnings) else "WARNING",
+                "block_on": sorted(list(config.org_config.block_on)) if config.org_config else [],
+                "disabled_rules": sorted(list(config.org_config.disabled_rules)) if config.org_config else [],
+            }
+        else:
+            org_status = "[dim]NONE[/dim]"
+            org_policy_data = {
+                "present": False,
+                "status": "NONE",
+            }
+
         has_config_warnings = bool(config.warnings)
         if output_format.lower() == "json":
             # Compute status
@@ -871,6 +944,7 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
                 hook_installed=hook_installed,
                 overall_status=overall_status,
                 config_warnings=config.warnings,
+                org_policy=org_policy_data,
             )
         else:
             print_status_dashboard(
@@ -883,6 +957,7 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
                 config_status=config_status,
                 baseline_status=baseline_status,
                 config_warnings=config.warnings,
+                org_status=org_status,
             )
         sys.exit(0)
     except EnvGuardError as e:

@@ -1,4 +1,4 @@
-"""SARIF (Static Analysis Results Interchange Format) v2.1.0 generator for EnvGuard v0.5.5.
+"""SARIF (Static Analysis Results Interchange Format) v2.1.0 generator for EnvGuard v0.6.0.
 
 Provides standard SARIF output compatible with GitHub Code Scanning, IDEs, and DevSecOps pipelines.
 Guarantees 100% privacy: plain-text secrets are strictly never included in SARIF outputs.
@@ -85,6 +85,8 @@ def generate_sarif(
 
         # Safe message: rule and file location, never the raw secret
         safe_msg = f"Potential secret detected matching rule '{f.rule_id}' ({f.rule_name})."
+        repo = getattr(f, "repository", None)
+        uri_path = f"{repo}/{normalized_path.lstrip('./')}" if repo else normalized_path
 
         result_entry: Dict[str, Any] = {
             "ruleId": f.rule_id,
@@ -96,7 +98,7 @@ def generate_sarif(
                 {
                     "physicalLocation": {
                         "artifactLocation": {
-                            "uri": normalized_path,
+                            "uri": uri_path,
                             "uriBaseId": "%SRCROOT%",
                         },
                         "region": {
@@ -111,6 +113,8 @@ def generate_sarif(
                 **({"entropy": f.entropy} if getattr(f, "entropy", None) is not None else {}),
                 **({"provider": f.provider} if getattr(f, "provider", None) else {}),
                 **({"signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
+                **({"repository": repo} if repo else {}),
+                **({"blockedBy": f.blocked_by} if getattr(f, "blocked_by", None) else {}),
             },
         }
         results_list.append(result_entry)

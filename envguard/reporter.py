@@ -27,6 +27,7 @@ from envguard import __version__
 from envguard.diagnostics import DiagnosticReport
 from envguard.env_diff import EnvDiffResult
 from envguard.initializer import InitResult
+from envguard.multi_repo import MultiRepoScanResult
 from envguard.patterns import Pattern
 from envguard.scanner import ScanFinding
 from envguard.theme import (
@@ -192,6 +193,8 @@ def render_scan_json(
                 **({"entropy": f.entropy} if getattr(f, "entropy", None) is not None else {}),
                 **({"provider": f.provider} if getattr(f, "provider", None) else {}),
                 **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
+                **({"repository": f.repository} if getattr(f, "repository", None) else {}),
+                **({"blocked_by": f.blocked_by} if getattr(f, "blocked_by", None) else {}),
             }
             for f in findings
         ],
@@ -256,6 +259,8 @@ def render_check_json(
                 **({"entropy": f.entropy} if getattr(f, "entropy", None) is not None else {}),
                 **({"provider": f.provider} if getattr(f, "provider", None) else {}),
                 **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
+                **({"repository": f.repository} if getattr(f, "repository", None) else {}),
+                **({"blocked_by": f.blocked_by} if getattr(f, "blocked_by", None) else {}),
             }
             for f in all_findings
         ],
@@ -299,6 +304,7 @@ def render_status_json(
     hook_installed: bool,
     overall_status: str,
     config_warnings: Optional[List[str]] = None,
+    org_policy: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Output status dashboard in structured JSON format."""
     high = sum(1 for f in findings if f.severity == "HIGH")
@@ -330,6 +336,10 @@ def render_status_json(
             "configuration": {
                 "status": "warning" if config_warnings else "valid",
                 "warnings": config_warnings or [],
+            },
+            "organization_policy": org_policy or {
+                "present": False,
+                "status": "none",
             },
         },
     }
@@ -496,24 +506,37 @@ def print_scan_findings(
         expand=False,
     )
     has_signals = any(bool(getattr(f, "detection_signals", None)) for f in findings)
+    has_repos = any(bool(getattr(f, "repository", None)) for f in findings)
+    has_blocked = any(bool(getattr(f, "blocked_by", None)) for f in findings)
+
     table.add_column("Severity", justify="center", style="bold")
+    if has_repos:
+        table.add_column("Repository", style="bold green")
     table.add_column("Rule ID", style="bold")
     table.add_column("File")
     table.add_column("Line", justify="right")
     table.add_column("Masked Value", style="cyan")
     if has_signals:
         table.add_column("Signals", style="magenta")
+    if has_blocked:
+        table.add_column("Blocked By", style="bold yellow")
 
     for f in findings:
         row = [
             format_severity(f.severity),
+        ]
+        if has_repos:
+            row.append(getattr(f, "repository", None) or "-")
+        row.extend([
             f.rule_id,
             f.file_path,
             str(f.line_number),
             f.masked_value,
-        ]
+        ])
         if has_signals:
             row.append(format_signals(f))
+        if has_blocked:
+            row.append(f.blocked_by.title() if getattr(f, "blocked_by", None) else "[dim]No[/dim]")
         table.add_row(*row)
 
     console.print()
@@ -563,22 +586,28 @@ def print_blocked_commit(findings: List[ScanFinding]) -> None:
         header_style="bold red",
         expand=False,
     )
+    has_policy = any(bool(getattr(f, "blocked_by", None)) for f in findings)
     table.add_column("Severity", justify="center", style="bold")
     table.add_column("Rule ID", style="bold")
     table.add_column("File")
     table.add_column("Line", justify="right")
     table.add_column("Masked Value", style="cyan")
     table.add_column("Signals", style="magenta")
+    if has_policy:
+        table.add_column("Blocked By", style="bold yellow")
 
     for f in findings:
-        table.add_row(
+        row = [
             format_severity(f.severity),
             f.rule_id,
             f.file_path,
             str(f.line_number),
             f.masked_value,
             format_signals(f),
-        )
+        ]
+        if has_policy:
+            row.append(f.blocked_by.title() if getattr(f, "blocked_by", None) else "Policy")
+        table.add_row(*row)
 
     console.print(table)
     console.print()
@@ -675,6 +704,7 @@ def print_status_dashboard(
     config_status: Optional[str] = None,
     baseline_status: Optional[str] = None,
     config_warnings: Optional[List[str]] = None,
+    org_status: Optional[str] = None,
 ) -> str:
     """Render comprehensive EnvGuard security status report and return status label."""
     high_count = sum(1 for f in findings if f.severity == "HIGH")
@@ -780,7 +810,13 @@ def print_status_dashboard(
     else:
         table.add_row("Configuration", "[green]VALID[/green]")
 
-    # 7. Baseline
+    # 7. Organization Policy
+    if org_status:
+        table.add_row("Organization Policy", org_status)
+    else:
+        table.add_row("Organization Policy", "[dim]NONE[/dim]")
+
+    # 8. Baseline
     if baseline_status:
         table.add_row("Baseline", baseline_status)
     else:
@@ -975,3 +1011,161 @@ def print_rules_list(patterns: List[Pattern]) -> None:
     console.print()
     console.print(f"[dim]Total rules: {len(patterns)} | Use 'envguard explain <rule-id>' for details.[/dim]")
     console.print()
+
+
+def print_multi_repo_summary(result: MultiRepoScanResult) -> None:
+    """Render a comprehensive Multi-Repository Scan Report."""
+    table = Table(
+        title="[bold]Multi-Repository Scan Report[/bold]",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        expand=False,
+    )
+    table.add_column("Repository", style="bold", min_width=18)
+    table.add_column("Status", justify="center", min_width=10)
+    table.add_column("Files", justify="right", min_width=8)
+    table.add_column("Findings", justify="center", min_width=18)
+    table.add_column("Org Policy", justify="center", min_width=12)
+    table.add_column("Details", min_width=24)
+
+    for r in result.repositories:
+        if r.status == "passed":
+            status_text = "[bold green]PASSED[/bold green]"
+        elif r.status == "failed":
+            status_text = "[bold red]FAILED[/bold red]"
+        else:
+            status_text = "[bold yellow]ERROR[/bold yellow]"
+
+        findings_summary = (
+            f"[bold red]{r.high_count}H[/bold red] "
+            f"[bold yellow]{r.medium_count}M[/bold yellow] "
+            f"[bold blue]{r.low_count}L[/bold blue]"
+        ) if r.findings else "[green]0[/green]"
+
+        org_policy_text = "[green]Active[/green]" if r.has_org_policy else "[dim]None[/dim]"
+
+        if r.error:
+            detail_text = f"[red]{r.error}[/red]"
+        elif r.suppressed_count > 0:
+            detail_text = f"[dim]{r.suppressed_count} baseline suppressed[/dim]"
+        else:
+            detail_text = "[dim]Clean[/dim]"
+
+        table.add_row(
+            r.name,
+            status_text,
+            str(r.files_scanned),
+            findings_summary,
+            org_policy_text,
+            detail_text,
+        )
+
+    console.print()
+    console.print(table)
+    console.print()
+
+    # If there are active findings, display finding details table
+    all_findings = result.all_findings
+    if all_findings:
+        print_scan_findings(
+            all_findings,
+            files_scanned=result.total_files_scanned,
+            files_skipped=result.total_files_skipped,
+        )
+
+    # Summary Panel
+    summary_color = "red" if result.has_blocking_findings else ("yellow" if result.has_errors else "green")
+    summary_grid = Table.grid(padding=(0, 2))
+    summary_grid.add_column(style="bold")
+    summary_grid.add_column()
+    summary_grid.add_row("Total Repositories:", str(result.total_repos))
+    summary_grid.add_row("Passed:", f"[green]{result.passed_repos}[/green]")
+    summary_grid.add_row("Failed (Security):", f"[red]{result.failed_repos}[/red]" if result.failed_repos else "0")
+    summary_grid.add_row("Errors:", f"[yellow]{result.error_repos}[/yellow]" if result.error_repos else "0")
+    summary_grid.add_row(
+        "Total Findings:",
+        f"[bold red]{result.total_findings}[/bold red]" if result.total_findings else "[green]0[/green]",
+    )
+
+    console.print(
+        Panel(
+            summary_grid,
+            title="[bold]Multi-Repo Scan Summary[/bold]",
+            border_style=summary_color,
+            box=box.ROUNDED,
+            expand=False,
+            padding=(0, 2),
+        )
+    )
+    console.print()
+
+
+def render_multi_repo_json(result: MultiRepoScanResult, output_path: Optional[Path] = None) -> None:
+    """Output multi-repository scan results in structured JSON format."""
+    data = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "envguard_version": __version__,
+        "command": "scan",
+        "multi_repo": True,
+        "status": "failed" if result.has_blocking_findings else ("error" if result.has_errors else "passed"),
+        "summary": {
+            "total_repositories": result.total_repos,
+            "passed_repositories": result.passed_repos,
+            "failed_repositories": result.failed_repos,
+            "error_repositories": result.error_repos,
+            "total_files_scanned": result.total_files_scanned,
+            "total_files_skipped": result.total_files_skipped,
+            "total_findings": result.total_findings,
+            "total_baseline_suppressed": result.total_suppressed,
+        },
+        "repositories": [
+            {
+                "name": r.name,
+                "path": str(r.path).replace("\\", "/"),
+                "status": r.status,
+                "files_scanned": r.files_scanned,
+                "files_skipped": r.files_skipped,
+                "findings_count": len(r.findings),
+                "has_org_policy": r.has_org_policy,
+                "config_warnings": r.config_warnings,
+                "error": r.error,
+                "findings": [
+                    {
+                        "rule_id": f.rule_id,
+                        "rule_name": f.rule_name,
+                        "severity": f.severity,
+                        "file": f.file_path.replace("\\", "/"),
+                        "line": f.line_number,
+                        "masked_value": f.masked_value,
+                        "fingerprint": f.fingerprint,
+                        "repository": r.name,
+                        "blocked_by": f.blocked_by,
+                        **({"entropy": f.entropy} if getattr(f, "entropy", None) is not None else {}),
+                        **({"provider": f.provider} if getattr(f, "provider", None) else {}),
+                        **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
+                    }
+                    for f in r.findings
+                ],
+            }
+            for r in result.repositories
+        ],
+        "findings": [
+            {
+                "rule_id": f.rule_id,
+                "rule_name": f.rule_name,
+                "severity": f.severity,
+                "file": f.file_path.replace("\\", "/"),
+                "line": f.line_number,
+                "masked_value": f.masked_value,
+                "fingerprint": f.fingerprint,
+                "repository": getattr(f, "repository", None),
+                "blocked_by": getattr(f, "blocked_by", None),
+                **({"entropy": f.entropy} if getattr(f, "entropy", None) is not None else {}),
+                **({"provider": f.provider} if getattr(f, "provider", None) else {}),
+                **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
+            }
+            for f in result.all_findings
+        ],
+    }
+    print_json(data, output_path=output_path)

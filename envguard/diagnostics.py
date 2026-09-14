@@ -20,7 +20,7 @@ from typing import Dict, List, Optional
 
 from envguard import __version__
 from envguard.baseline import inspect_baseline, load_baseline
-from envguard.config import load_config
+from envguard.config import find_org_config_file, load_config, load_raw_config_file
 from envguard.git_handler import get_repo_root, is_git_repo
 from envguard.hook import is_hook_installed
 from envguard.patterns import load_default_patterns
@@ -133,6 +133,47 @@ def run_diagnostics(repo_path: Path) -> DiagnosticReport:
             report.checks.append(DiagnosticCheck("Repository Config", "ERROR", f".envguard.yml parse error: {e}", "Fix SYNTAX errors in .envguard.yml."))
     else:
         report.checks.append(DiagnosticCheck("Repository Config", "WARNING", "No .envguard.yml (using defaults)", "Run 'envguard init' to generate a configuration file."))
+
+    # 5b. Organization Policy
+    org_file = find_org_config_file(repo_path)
+    if org_file and org_file.is_file():
+        try:
+            org_cfg = load_raw_config_file(org_file)
+            if org_cfg.warnings:
+                org_warnings_str = "; ".join(org_cfg.warnings)
+                report.checks.append(
+                    DiagnosticCheck(
+                        "Organization Policy",
+                        "WARNING",
+                        f"{org_file.name} has warnings: {org_warnings_str}",
+                        f"Review {org_file.name} and fix unrecognized or typo'd keys.",
+                    )
+                )
+            else:
+                report.checks.append(
+                    DiagnosticCheck(
+                        "Organization Policy",
+                        "PASS",
+                        f"{org_file.name} active and enforced as security floor",
+                    )
+                )
+        except Exception as e:
+            report.checks.append(
+                DiagnosticCheck(
+                    "Organization Policy",
+                    "ERROR",
+                    f"{org_file.name} parse error: {e}",
+                    f"Fix syntax/configuration errors in {org_file.name}.",
+                )
+            )
+    else:
+        report.checks.append(
+            DiagnosticCheck(
+                "Organization Policy",
+                "PASS",
+                "No organization policy (.envguard-org.yml optional)",
+            )
+        )
 
     # 6. Rules
     try:

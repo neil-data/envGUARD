@@ -37,6 +37,10 @@ class EnvGuardConfig:
     ci: CIConfig = field(default_factory=CIConfig)
     warnings: List[str] = field(default_factory=list)
     config_file_path: Optional[Path] = None
+    has_explicit_block_on: bool = False
+    org_config: Optional["EnvGuardConfig"] = None
+    org_config_path: Optional[Path] = None
+    local_block_on: Optional[List[str]] = None
 
     @property
     def max_file_size_bytes(self) -> int:
@@ -52,14 +56,22 @@ def find_config_file(root_dir: Path) -> Optional[Path]:
     return None
 
 
-def load_config(root_dir: Optional[Path] = None, config_path: Optional[Path] = None) -> EnvGuardConfig:
-    """Load and validate repository configuration from .envguard.yml or return defaults."""
-    target_root = root_dir or Path.cwd()
-    file_to_load = config_path or find_config_file(target_root)
+def find_org_config_file(root_dir: Path) -> Optional[Path]:
+    """Look for .envguard-org.yml or .envguard-org.yaml in root directory."""
+    for candidate_name in (".envguard-org.yml", ".envguard-org.yaml"):
+        candidate = root_dir / candidate_name
+        if candidate.is_file():
+            return candidate
+    return None
 
-    if not file_to_load or not file_to_load.is_file():
-        # Return default zero-configuration
-        return EnvGuardConfig()
+
+def load_raw_config_file(file_to_load: Path) -> EnvGuardConfig:
+    """Strictly load and validate a configuration file (.envguard.yml or .envguard-org.yml)."""
+    if not file_to_load.is_file():
+        raise ConfigurationError(
+            f"Configuration file '{file_to_load}' does not exist.",
+            config_path=file_to_load.name,
+        )
 
     config_filename = file_to_load.name
 
@@ -241,10 +253,17 @@ def load_config(root_dir: Optional[Path] = None, config_path: Optional[Path] = N
             config_path=config_filename,
         )
 
+    has_explicit_block_on = False
     block_on_val = scan_section.get("block_on")
-    if block_on_val is None:
+    if block_on_val is not None:
+        has_explicit_block_on = True
+    elif git_section.get("block_on") is not None:
         block_on_val = git_section.get("block_on")
-    if block_on_val is None:
+        has_explicit_block_on = True
+    elif raw_data.get("block_on") is not None:
+        block_on_val = raw_data.get("block_on")
+        has_explicit_block_on = True
+    else:
         block_on_val = DEFAULT_BLOCK_ON
 
     if not isinstance(block_on_val, list):
@@ -532,4 +551,97 @@ def load_config(root_dir: Optional[Path] = None, config_path: Optional[Path] = N
         ci=ci_config,
         warnings=warnings,
         config_file_path=file_to_load,
+        has_explicit_block_on=has_explicit_block_on,
+    )
+
+
+def load_config(
+    root_dir: Optional[Path] = None,
+    config_path: Optional[Path] = None,
+    org_path: Optional[Path] = None,
+) -> EnvGuardConfig:
+    """Load and validate repository configuration from .envguard.yml and .envguard-org.yml."""
+    target_root = root_dir or Path.cwd()
+    file_to_load = config_path or find_config_file(target_root)
+    org_file_to_load = org_path or find_org_config_file(target_root)
+
+    # 1. Load local configuration
+    if file_to_load and file_to_load.is_file():
+        local_cfg = load_raw_config_file(file_to_load)
+    else:
+        local_cfg = EnvGuardConfig()
+
+    # 2. If no organization policy file exists, return local configuration directly
+    if not org_file_to_load or not org_file_to_load.is_file():
+        return local_cfg
+
+    # 3. Strictly validate and load organization policy
+    org_cfg = load_raw_config_file(org_file_to_load)
+
+    # 4. Strict Security Floor Enforcement (Fail-Stop)
+    # Check A: disabled_rules
+    for d_rule in sorted(local_cfg.disabled_rules):
+        if d_rule not in org_cfg.disabled_rules:
+            raise ConfigurationError(
+                f"Local configuration '{file_to_load.name if file_to_load else '.envguard.yml'}' cannot disable rule '{d_rule}': enforced by organization policy '{org_file_to_load.name}'.",
+                field="rules.disabled",
+                config_path=file_to_load.name if file_to_load else ".envguard.yml",
+            )
+
+    # Check B: block_on
+    if local_cfg.has_explicit_block_on:
+        missing_severities = set(org_cfg.block_on) - set(local_cfg.block_on)
+        if missing_severities:
+            missing_sorted = sorted(missing_severities)
+            raise ConfigurationError(
+                f"Local configuration '{file_to_load.name if file_to_load else '.envguard.yml'}' cannot weaken 'block_on' policy: severity {missing_sorted} is required by organization policy '{org_file_to_load.name}'.",
+                field="scan.block_on",
+                config_path=file_to_load.name if file_to_load else ".envguard.yml",
+            )
+
+    # Check C: severity_overrides
+    severity_rank = {"LOW": 1, "MEDIUM": 2, "HIGH": 3}
+    for rule_id, local_sev in sorted(local_cfg.severity_overrides.items()):
+        if rule_id in org_cfg.severity_overrides:
+            org_sev = org_cfg.severity_overrides[rule_id]
+            if severity_rank.get(local_sev, 0) < severity_rank.get(org_sev, 0):
+                raise ConfigurationError(
+                    f"Local configuration '{file_to_load.name if file_to_load else '.envguard.yml'}' cannot downgrade severity override for '{rule_id}' to '{local_sev}': organization policy '{org_file_to_load.name}' enforces '{org_sev}'.",
+                    field=f"rules.severity_overrides.{rule_id}",
+                    config_path=file_to_load.name if file_to_load else ".envguard.yml",
+                )
+
+    # 5. Merge policies into composite configuration
+    combined_block_on = set(org_cfg.block_on) | set(local_cfg.block_on)
+    effective_block_on = [s for s in ["HIGH", "MEDIUM", "LOW"] if s in combined_block_on]
+
+    effective_disabled_rules = set(org_cfg.disabled_rules) | set(local_cfg.disabled_rules)
+
+    effective_severity_overrides = dict(local_cfg.severity_overrides)
+    effective_severity_overrides.update(org_cfg.severity_overrides)
+
+    effective_exclude = list(dict.fromkeys(org_cfg.exclude + local_cfg.exclude))
+    effective_placeholders = org_cfg.placeholders | local_cfg.placeholders
+    if effective_placeholders:
+        add_custom_placeholders(effective_placeholders)
+
+    effective_max_mb = min(local_cfg.max_file_size_mb, org_cfg.max_file_size_mb)
+    effective_warnings = org_cfg.warnings + local_cfg.warnings
+
+    return EnvGuardConfig(
+        version=local_cfg.version,
+        max_file_size_mb=effective_max_mb,
+        exclude=effective_exclude,
+        disabled_rules=effective_disabled_rules,
+        severity_overrides=effective_severity_overrides,
+        placeholders=effective_placeholders,
+        block_on=effective_block_on,
+        advanced_detection=local_cfg.advanced_detection,
+        ci=local_cfg.ci,
+        warnings=effective_warnings,
+        config_file_path=local_cfg.config_file_path,
+        has_explicit_block_on=local_cfg.has_explicit_block_on,
+        org_config=org_cfg,
+        org_config_path=org_file_to_load,
+        local_block_on=local_cfg.block_on,
     )

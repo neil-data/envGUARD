@@ -16,7 +16,7 @@ from rich.table import Table
 from rich.text import Text
 
 from envguard.baseline import create_baseline, inspect_baseline, load_baseline
-from envguard.config import load_config
+from envguard.config import find_config_file, find_org_config_file, load_config
 from envguard.env_diff import compare_env_files
 from envguard.git_handler import (
     get_repo_root,
@@ -129,6 +129,15 @@ def run_status_action(cwd: Path) -> None:
         else:
             baseline_status = "[yellow]INVALID[/yellow]"
 
+    org_file = config.org_config_path or find_org_config_file(repo_root)
+    if org_file and org_file.is_file():
+        if config.org_config and not config.org_config.warnings:
+            org_status = f"[green]ACTIVE ({org_file.name})[/green]"
+        else:
+            org_status = f"[yellow]WARNING ({org_file.name})[/yellow]"
+    else:
+        org_status = "[dim]NONE[/dim]"
+
     print_status_dashboard(
         is_git=is_git,
         env_tracked=env_tracked,
@@ -139,6 +148,7 @@ def run_status_action(cwd: Path) -> None:
         config_status=config_status,
         baseline_status=baseline_status,
         config_warnings=config.warnings,
+        org_status=org_status,
     )
 
 

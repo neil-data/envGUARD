@@ -4,9 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "envguard"
-version = "0.5.5"
-
-description = "A lightweight developer-side safety gate for secrets and environment drift."
+version = "0.6.0"
+description = "High-accuracy, zero-telemetry local secret scanner, Git pre-commit enforcement gate, and environment configuration guard."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

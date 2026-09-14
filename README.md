@@ -6,9 +6,9 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/version-0.5.5-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
+[![Release](https://img.shields.io/badge/version-0.6.0-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
-[![Tests](https://img.shields.io/badge/tests-137%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-164%20passed-brightgreen.svg)](#testing)
 
 
 <p>
@@ -18,6 +18,7 @@
   <a href="#cli-commands">CLI Commands</a> ·
   <a href="#interactive-console">Interactive Console</a> ·
   <a href="#configuration">Configuration</a> ·
+  <a href="#organization-policy">Organization Policy</a> ·
   <a href="#cicd-integration">CI/CD & GitHub</a> ·
   <a href="#roadmap">Roadmap</a>
 </p>
@@ -30,7 +31,7 @@
 
 Secret leaks into Git are one of the most common, preventable security incidents in software development — a misconfigured `.gitignore`, a key pasted into a tracked file, or a commit made before anyone double-checks what's staged. Existing scanners such as Gitleaks and TruffleHog are excellent, but they're built for CI pipelines and security teams, not the moment right before a developer runs `git commit`.
 
-EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable. With v0.5.0, that same protection now extends into CI/CD pipelines and pull requests.
+EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable. With v0.5.0, that same protection extended into CI/CD pipelines and pull requests. With v0.6.0, team-wide organization policies and multi-repository scanning bring enterprise-grade workflows while maintaining 100% local-first privacy.
 
 ---
 
@@ -46,7 +47,7 @@ EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that ca
 | Detected secrets transmitted | No |
 | Telemetry by default | No |
 
-All secret detection, line-by-line streaming, and SHA-256 baseline fingerprinting run entirely in local memory on your machine or CI runner.
+All secret detection, line-by-line streaming, SHA-256 baseline fingerprinting, and organization policy evaluations run entirely in local memory on your machine or CI runner.
 
 ---
 
@@ -54,12 +55,13 @@ All secret detection, line-by-line streaming, and SHA-256 baseline fingerprintin
 
 | Feature | Description |
 |---|---|
+| **Team & Multi-Repo Workflows** (`v0.6.0`) | Organization security floor (`.envguard-org.yml`), multi-repo scanning (`envguard scan --repos`), clear blocker attribution (`organization policy` vs `local policy`), tolerant error isolation, and CLI injection protection. |
 | **CI/CD & GitHub Ecosystem** (`v0.5.0`) | Dedicated `envguard ci` command, environment detection (GitHub Actions, GitLab CI, CircleCI, Azure Pipelines, Jenkins), changed-file diff scanning (`--changed`, `--base`), SARIF 2.1.0 generation, GitHub Actions annotations, and job summaries. |
 | **Advanced Detection Engine** (`v0.4.0`) | Multi-signal detection combining known patterns, Shannon entropy ($H \ge 4.0$), structural JWT validation, and context heuristics. |
 | **Pre-Commit Gate** (`envguard check`) | Inspects only staged Git index content (`git show :path`), blocking risky commits before credentials touch Git history. |
-| **Directory Scanner** (`envguard scan`) | Line-by-line streaming scan with changed-file support (`--changed`, `--base`), file output (`--output`), respecting `.gitignore`, `.envguardignore`, and configuration exclusions. |
+| **Directory Scanner** (`envguard scan`) | Line-by-line streaming scan with changed-file support (`--changed`, `--base`), multi-repo support (`--repos`), file output (`--output`), respecting `.gitignore`, `.envguardignore`, and configuration exclusions. |
 | **Environment Drift Gate** (`envguard diff`) | Compares `.env` against `.env.example` by key only, flagging missing or stale variables without ever reading secret values. |
-| **Security Dashboard** (`envguard status`) | Severity-aware health check covering `.env` Git-tracking risk, credential leaks, baseline status, and hook status. |
+| **Security Dashboard** (`envguard status`) | Severity-aware health check covering `.env` Git-tracking risk, credential leaks, organization policy enforcement, baseline status, and hook status. |
 | **Cryptographic Baseline** (`envguard baseline create`) | Suppresses existing legacy findings via SHA-256 fingerprints. Adopt EnvGuard on an old codebase without blocking current work. Never writes plaintext secrets to disk. |
 | **Interactive Console** (`envguard menu` / `envguard ui`) | A built-in Rich dashboard, plus a dedicated Windows Terminal / Command Prompt launcher with a sandboxed demo mode. |
 | **Strict Secret Masking** | Full secrets are never printed in terminal output, JSON, SARIF, or annotations (e.g. `AKIA••••••••••••MPLE`). Immediate hashing prevents plaintext in memory. |
@@ -71,7 +73,7 @@ All secret detection, line-by-line streaming, and SHA-256 baseline fingerprintin
 
 **Option 1 — From wheel**
 ```bash
-pip install dist/envguard-0.5.5-py3-none-any.whl
+pip install dist/envguard-0.6.0-py3-none-any.whl
 ```
 
 **Option 2 — Editable / developer mode**
@@ -140,6 +142,10 @@ envguard scan --path ./src
 # Scan only changed files relative to base branch
 envguard scan --changed
 envguard scan --changed --base origin/main
+
+# Multi-repository scanning (new in v0.6.0)
+envguard scan --repos ./backend,./frontend,./microservice-a
+envguard scan --repos ./backend --repos ./frontend --format json
 
 # Output formats: text, json, or sarif
 envguard scan --format json
@@ -415,6 +421,24 @@ ci:
 
 ---
 
+## Organization Policy (`.envguard-org.yml`)
+
+EnvGuard v0.6.0 introduces support for `.envguard-org.yml` (or `.envguard-org.yaml`) committed alongside `.envguard.yml`.
+
+### Hybrid Policy Model & Fail-Stop Security Floor
+The organization policy establishes a non-negotiable **security floor** that individual developer or local configurations cannot weaken:
+
+1. **Unbreakable `block_on` Floor**: If `.envguard-org.yml` mandates blocking on `HIGH`, a local `.envguard.yml` cannot omit `HIGH`. Local policies may strengthen enforcement (e.g. adding `MEDIUM` or `LOW`), but any attempt to weaken it raises a `ConfigurationError` and immediately halts execution.
+2. **Rule Disabling Protection**: Local configuration cannot disable any rule that is actively enforced by organization policy.
+3. **Severity Override Floor**: Local configuration cannot downgrade a severity override below what organization policy specifies.
+4. **Transparent Attribution**: Findings report exactly which policy triggered blocking:
+   - `Blocked by: organization policy`
+   - `Blocked by: local policy`
+   - `Blocked by: organization & local policy`
+5. **Integrated Auditing**: Both `envguard status` and `envguard doctor` automatically detect, validate, and report organization policy status.
+
+---
+
 ## Stable Rule IDs
 
 | Rule ID | Rule Name | Default Severity | Target / Pattern |
@@ -576,8 +600,8 @@ tests/test_v042_fixes.py::test_v042_version PASSED
 | v0.5.0 | CI/CD & GitHub Ecosystem (CI detection, changed-file diff, SARIF 2.1.0, GitHub annotations & step summaries) | Complete |
 | v0.5.3 | Bug Fix Release (Baseline Consistency, Independent Entropy Rule, Output Confirmation) | Complete |
 | v0.5.4 | Security & Consistency Patch (Ref Injection Prevention, block_on Validation, Status advanced_detection, Specificity Fix, Unknown Keys Warning) | Complete |
-| **v0.5.5** | **Micro Patch Update (Rich Console Stderr Fix, Status Command Config Warnings Surface)** | **Current Release ✅** |
-| v0.6.0 | Team/project workflows & multi-repo policies | Planned |
+| v0.5.5 | Micro Patch Update (Rich Console Stderr Fix, Status Command Config Warnings Surface) | Complete |
+| **v0.6.0** | **Team & Multi-Repo Workflows (Organization Security Floor, Multi-Repo Scanning, Blocker Attribution)** | **Current Release ✅** |
 | v1.0.0 | Stable production release | Target |
 
 
