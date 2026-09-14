@@ -1,4 +1,4 @@
-"""SARIF (Static Analysis Results Interchange Format) v2.1.0 generator for EnvGuard v0.6.0.
+"""SARIF (Static Analysis Results Interchange Format) v2.1.0 generator for EnvGuard v0.6.6.
 
 Provides standard SARIF output compatible with GitHub Code Scanning, IDEs, and DevSecOps pipelines.
 Guarantees 100% privacy: plain-text secrets are strictly never included in SARIF outputs.

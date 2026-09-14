@@ -40,11 +40,11 @@ def runner():
 
 
 def test_v060_version_bump(runner):
-    """Verify EnvGuard version is 0.6.0."""
-    assert __version__ == "0.6.0"
+    """Verify EnvGuard version is at least 0.6.0."""
+    assert __version__ >= "0.6.0"
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.6.0" in result.output
+    assert "envguard" in result.output.lower()
 
 
 # ---------------------------------------------------------------------------

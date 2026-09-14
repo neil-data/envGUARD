@@ -6,9 +6,9 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/version-0.6.0-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
+[![Release](https://img.shields.io/badge/version-0.6.6-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
-[![Tests](https://img.shields.io/badge/tests-164%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-169%20passed-brightgreen.svg)](#testing)
 
 
 <p>
@@ -73,7 +73,7 @@ All secret detection, line-by-line streaming, SHA-256 baseline fingerprinting, a
 
 **Option 1 — From wheel**
 ```bash
-pip install dist/envguard-0.6.0-py3-none-any.whl
+pip install dist/envguard-0.6.6-py3-none-any.whl
 ```
 
 **Option 2 — Editable / developer mode**
@@ -601,7 +601,8 @@ tests/test_v042_fixes.py::test_v042_version PASSED
 | v0.5.3 | Bug Fix Release (Baseline Consistency, Independent Entropy Rule, Output Confirmation) | Complete |
 | v0.5.4 | Security & Consistency Patch (Ref Injection Prevention, block_on Validation, Status advanced_detection, Specificity Fix, Unknown Keys Warning) | Complete |
 | v0.5.5 | Micro Patch Update (Rich Console Stderr Fix, Status Command Config Warnings Surface) | Complete |
-| **v0.6.0** | **Team & Multi-Repo Workflows (Organization Security Floor, Multi-Repo Scanning, Blocker Attribution)** | **Current Release ✅** |
+| v0.6.0 | Team & Multi-Repo Workflows (Organization Security Floor, Multi-Repo Scanning, Blocker Attribution) | Complete |
+| **v0.6.6** | **Patch Update (Organization Policy locked_disabled_rules Schema Fix, Multi-Repo Scan TypeError Fix)** | **Current Release ✅** |
 | v1.0.0 | Stable production release | Target |
 
 

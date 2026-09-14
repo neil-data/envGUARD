@@ -41,6 +41,7 @@ class EnvGuardConfig:
     org_config: Optional["EnvGuardConfig"] = None
     org_config_path: Optional[Path] = None
     local_block_on: Optional[List[str]] = None
+    locked_disabled_rules: Set[str] = field(default_factory=set)
 
     @property
     def max_file_size_bytes(self) -> int:
@@ -187,6 +188,23 @@ def load_raw_config_file(file_to_load: Path) -> EnvGuardConfig:
             example="rules:\n  disabled:\n    - generic-credential",
         )
     disabled_rules = {str(r) for r in disabled_val}
+
+    locked_disabled_rules: Set[str] = set()
+    locked_disabled_val = raw_data.get("locked_disabled_rules")
+    if locked_disabled_val is None and isinstance(rules_section, dict):
+        locked_disabled_val = rules_section.get("locked_disabled_rules")
+    if locked_disabled_val is not None:
+        if not isinstance(locked_disabled_val, list):
+            raise ConfigurationError(
+                "locked_disabled_rules must be a list of rule IDs",
+                field="locked_disabled_rules",
+                expected="list",
+                received=type(locked_disabled_val).__name__,
+                config_path=config_filename,
+                example="locked_disabled_rules:\n  - generic-secret",
+            )
+        locked_disabled_rules = {str(r) for r in locked_disabled_val}
+        disabled_rules.update(locked_disabled_rules)
 
     raw_overrides = rules_section.get("severity_overrides")
     if raw_overrides is None:
@@ -534,6 +552,7 @@ def load_raw_config_file(file_to_load: Path) -> EnvGuardConfig:
         "ci",
         "disabled_rules",
         "severity_overrides",
+        "locked_disabled_rules",
     }
     for k in raw_data:
         if k not in known_top_level_keys:
@@ -552,6 +571,7 @@ def load_raw_config_file(file_to_load: Path) -> EnvGuardConfig:
         warnings=warnings,
         config_file_path=file_to_load,
         has_explicit_block_on=has_explicit_block_on,
+        locked_disabled_rules=locked_disabled_rules,
     )
 
 
@@ -627,6 +647,7 @@ def load_config(
 
     effective_max_mb = min(local_cfg.max_file_size_mb, org_cfg.max_file_size_mb)
     effective_warnings = org_cfg.warnings + local_cfg.warnings
+    effective_locked_disabled = set(org_cfg.locked_disabled_rules) | set(local_cfg.locked_disabled_rules)
 
     return EnvGuardConfig(
         version=local_cfg.version,
@@ -644,4 +665,5 @@ def load_config(
         org_config=org_cfg,
         org_config_path=org_file_to_load,
         local_block_on=local_cfg.block_on,
+        locked_disabled_rules=effective_locked_disabled,
     )

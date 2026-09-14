@@ -1,11 +1,11 @@
-"""Project initializer for EnvGuard v0.6.0.
+"""Project initializer for EnvGuard v0.6.6.
 Creates initial .envguard.yml and .envguardignore.
 """
 
 from dataclasses import dataclass
 from pathlib import Path
 
-version = "0.6.0"
+version = "0.6.6"
 
 
 default_envguard_yml = """# EnvGuard Configuration

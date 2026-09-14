@@ -478,6 +478,9 @@ def print_scan_findings(
     findings: List[ScanFinding],
     title: str = "Scan Report",
     stats: Optional[Dict[str, Any]] = None,
+    files_scanned: Optional[int] = None,
+    files_skipped: Optional[int] = None,
+    **kwargs: Any,
 ) -> None:
     """Display scan findings in a Rich-styled table with summary."""
     if not findings:
@@ -485,6 +488,13 @@ def print_scan_findings(
         console.print(create_success_panel("SCAN PASSED", "No secrets were detected in the scanned files."))
         console.print()
         return
+
+    # Normalize stats if passed as separate arguments
+    if stats is None and (files_scanned is not None or files_skipped is not None):
+        stats = {
+            "files_scanned": files_scanned or 0,
+            "files_skipped": files_skipped or 0,
+        }
 
     # 1. Summary banner
     if stats:
@@ -1070,8 +1080,11 @@ def print_multi_repo_summary(result: MultiRepoScanResult) -> None:
     if all_findings:
         print_scan_findings(
             all_findings,
-            files_scanned=result.total_files_scanned,
-            files_skipped=result.total_files_skipped,
+            title="Multi-Repository Scan Findings",
+            stats={
+                "files_scanned": result.total_files_scanned,
+                "files_skipped": result.total_files_skipped,
+            },
         )
 
     # Summary Panel
