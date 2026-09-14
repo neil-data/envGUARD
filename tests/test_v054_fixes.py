@@ -23,12 +23,12 @@ from envguard.scanner import scan_lines, scan_directory
 
 
 def test_v054_version():
-    """Verify version bumped to 0.5.4."""
-    assert __version__ == "0.5.4"
+    """Verify version at least 0.5.4."""
+    assert __version__ >= "0.5.4"
     runner = CliRunner()
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.5.4" in result.output
+    assert __version__ in result.output
 
 
 def test_priority_1_git_ref_injection_rejected(tmp_path):

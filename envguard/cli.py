@@ -59,6 +59,7 @@ from envguard.initializer import init_project
 from envguard.patterns import load_default_patterns
 from envguard.reporter import (
     console,
+    err_console,
     print_blocked_commit,
     print_check_passed,
     print_diagnostics,
@@ -276,7 +277,7 @@ def scan_cmd(
 
         if is_verbose and config.warnings:
             for w in config.warnings:
-                console.print(f"[yellow]Config warning:[/yellow] {w}", file=sys.stderr)
+                err_console.print(f"[yellow]Config warning:[/yellow] {w}")
 
         patterns = load_default_patterns(
             disabled_rules=config.disabled_rules,
@@ -461,7 +462,7 @@ def ci_cmd(
 
         if is_verbose and config.warnings:
             for w in config.warnings:
-                console.print(f"[yellow]Config warning:[/yellow] {w}", file=sys.stderr)
+                err_console.print(f"[yellow]Config warning:[/yellow] {w}")
 
         patterns = load_default_patterns(
             disabled_rules=config.disabled_rules,
@@ -509,7 +510,7 @@ def ci_cmd(
                 changed_files = get_changed_files(base=target_base, head="HEAD", repo_path=repo_root)
             except GitError as ge:
                 if is_verbose:
-                    console.print(f"[yellow]Warning:[/yellow] Could not compare against '{target_base}': {ge}. Falling back to full scan.", file=sys.stderr)
+                    err_console.print(f"[yellow]Warning:[/yellow] Could not compare against '{target_base}': {ge}. Falling back to full scan.")
                 changed_files = None
                 mode_desc = "Full Repository (Fallback)"
 
@@ -638,7 +639,7 @@ def check_cmd(ctx: click.Context, output_format: str, baseline_path: Optional[Pa
 
         if is_verbose and config.warnings:
             for w in config.warnings:
-                console.print(f"[yellow]Config warning:[/yellow] {w}", file=sys.stderr)
+                err_console.print(f"[yellow]Config warning:[/yellow] {w}")
 
         staged_files = get_staged_files(repo_root)
 
@@ -786,9 +787,10 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
         config_file = find_config_file(cwd) or find_config_file(repo_root)
         config = load_config(root_dir=cwd, config_path=config_file)
 
-        if is_verbose and config.warnings:
-            for w in config.warnings:
-                console.print(f"[yellow]Config warning:[/yellow] {w}", file=sys.stderr)
+        if config.warnings:
+            if output_format.lower() != "json" or is_verbose:
+                for w in config.warnings:
+                    err_console.print(f"[yellow]Config warning:[/yellow] {w}")
 
         # 1. Check .env tracked
         env_tracked = is_git and is_env_tracked(repo_root)
@@ -838,8 +840,15 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
             else:
                 baseline_status = "[yellow]INVALID[/yellow]"
 
-        config_status = f"[green]VALID ({config_file.name})[/green]" if config_file and config_file.is_file() else "[dim]DEFAULT[/dim]"
+        if config_file and config_file.is_file():
+            if config.warnings:
+                config_status = f"[yellow]WARNING ({config_file.name})[/yellow]"
+            else:
+                config_status = f"[green]VALID ({config_file.name})[/green]"
+        else:
+            config_status = "[dim]DEFAULT[/dim]"
 
+        has_config_warnings = bool(config.warnings)
         if output_format.lower() == "json":
             # Compute status
             high = sum(1 for f in findings if f.severity == "HIGH")
@@ -849,7 +858,7 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
                 overall_status = "CRITICAL"
             elif med > 0 or has_drift or not hook_installed:
                 overall_status = "ATTENTION REQUIRED"
-            elif len(findings) > 0:
+            elif len(findings) > 0 or has_config_warnings:
                 overall_status = "WARNING"
             else:
                 overall_status = "SECURE"
@@ -861,6 +870,7 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
                 diff_result=diff_result,
                 hook_installed=hook_installed,
                 overall_status=overall_status,
+                config_warnings=config.warnings,
             )
         else:
             print_status_dashboard(
@@ -872,6 +882,7 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
                 hook_installed=hook_installed,
                 config_status=config_status,
                 baseline_status=baseline_status,
+                config_warnings=config.warnings,
             )
         sys.exit(0)
     except EnvGuardError as e:

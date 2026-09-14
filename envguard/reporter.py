@@ -42,6 +42,7 @@ from envguard.theme import (
     SYMBOL_SUCCESS,
     SYMBOL_WARNING,
     console,
+    err_console,
     create_error_panel,
     create_panel,
     create_success_panel,
@@ -297,6 +298,7 @@ def render_status_json(
     diff_result: Optional[EnvDiffResult],
     hook_installed: bool,
     overall_status: str,
+    config_warnings: Optional[List[str]] = None,
 ) -> None:
     """Output status dashboard in structured JSON format."""
     high = sum(1 for f in findings if f.severity == "HIGH")
@@ -309,6 +311,7 @@ def render_status_json(
         "command": "status",
         "status": "passed" if overall_status == "SECURE" else "attention_required",
         "overall_status": overall_status,
+        "config_warnings": config_warnings or [],
         "checks": {
             "is_git_repository": is_git,
             "env_file_tracked": env_tracked,
@@ -324,6 +327,10 @@ def render_status_json(
                 "extra_in_example": diff_result.extra_in_example if diff_result else [],
             },
             "pre_commit_hook_installed": hook_installed,
+            "configuration": {
+                "status": "warning" if config_warnings else "valid",
+                "warnings": config_warnings or [],
+            },
         },
     }
     print_json(data)
@@ -667,12 +674,14 @@ def print_status_dashboard(
     hook_installed: bool,
     config_status: Optional[str] = None,
     baseline_status: Optional[str] = None,
+    config_warnings: Optional[List[str]] = None,
 ) -> str:
     """Render comprehensive EnvGuard security status report and return status label."""
     high_count = sum(1 for f in findings if f.severity == "HIGH")
     med_count = sum(1 for f in findings if f.severity == "MEDIUM")
     low_count = sum(1 for f in findings if f.severity == "LOW")
     has_drift = diff_result is not None and diff_result.has_drift
+    has_cfg_warn = bool(config_warnings)
 
     # Compute overall status
     explanation = ""
@@ -695,11 +704,18 @@ def print_status_dashboard(
             reasons.append(f"{len(diff_result.missing_from_example)} variable(s) missing from .env.example" if diff_result.missing_from_example else "Environment drift detected")
         if not hook_installed:
             reasons.append("Pre-commit hook not installed")
+        if has_cfg_warn:
+            reasons.append(f"{len(config_warnings)} configuration warning(s)")
         explanation = " • ".join(reasons) + "."
-    elif low_count > 0:
+    elif low_count > 0 or has_cfg_warn:
         overall_label = "WARNING"
-        border_style = "blue"
-        explanation = f"{low_count} low-severity warning(s) detected."
+        border_style = "yellow" if has_cfg_warn else "blue"
+        reasons = []
+        if low_count > 0:
+            reasons.append(f"{low_count} low-severity warning(s)")
+        if has_cfg_warn:
+            reasons.append(f"{len(config_warnings)} configuration warning(s)")
+        explanation = " • ".join(reasons) + " detected."
     else:
         overall_label = "SECURE"
         border_style = "green"

@@ -18,8 +18,9 @@ from rich.text import Text
 
 from envguard import __version__
 
-# Global Console instance for text UI rendering
+# Global Console instances for text UI rendering
 console = Console()
+err_console = Console(stderr=True)
 
 # Color Tokens
 COLOR_HIGH = "red"

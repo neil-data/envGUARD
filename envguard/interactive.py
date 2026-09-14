@@ -31,6 +31,7 @@ from envguard.initializer import init_project
 from envguard.patterns import load_default_patterns
 from envguard.reporter import (
     console,
+    err_console,
     print_blocked_commit,
     print_check_passed,
     print_diagnostics,
@@ -107,7 +108,17 @@ def run_status_action(cwd: Path) -> None:
     hook_installed = is_git and is_hook_installed(repo_root)
 
     config_file = repo_root / ".envguard.yml"
-    config_status = "[green]VALID (.envguard.yml)[/green]" if config_file.is_file() else "[dim]DEFAULT[/dim]"
+    if config_file.is_file():
+        if config.warnings:
+            config_status = "[yellow]WARNING (.envguard.yml)[/yellow]"
+        else:
+            config_status = "[green]VALID (.envguard.yml)[/green]"
+    else:
+        config_status = "[dim]DEFAULT[/dim]"
+
+    if config.warnings:
+        for w in config.warnings:
+            err_console.print(f"[yellow]Config warning:[/yellow] {w}")
 
     baseline_file = repo_root / ".envguard-baseline.json"
     baseline_status = None
@@ -118,7 +129,6 @@ def run_status_action(cwd: Path) -> None:
         else:
             baseline_status = "[yellow]INVALID[/yellow]"
 
-
     print_status_dashboard(
         is_git=is_git,
         env_tracked=env_tracked,
@@ -128,6 +138,7 @@ def run_status_action(cwd: Path) -> None:
         hook_installed=hook_installed,
         config_status=config_status,
         baseline_status=baseline_status,
+        config_warnings=config.warnings,
     )
 
 
