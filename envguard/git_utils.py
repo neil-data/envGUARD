@@ -1,4 +1,4 @@
-"""Safe Git integration utilities for EnvGuard v0.5.3.
+"""Safe Git integration utilities for EnvGuard v0.5.4.
 
 Provides changed-file detection, staged-file inspection, base branch resolution,
 and repository root identification with strict EnvGuard exception handling.
@@ -87,6 +87,10 @@ def get_changed_files(
     Executes 'git diff --name-only BASE...HEAD' with automatic two-dot fallback.
     Only returns files that exist on the filesystem.
     """
+    if (base and base.startswith("-")) or (head and head.startswith("-")):
+        bad_ref = base if (base and base.startswith("-")) else head
+        raise GitError(f"Invalid Git reference '{bad_ref}': reference cannot begin with '-'")
+
     root = get_git_root(repo_path) or (repo_path or Path.cwd())
 
     # Try 3-dot diff first (common ancestor)

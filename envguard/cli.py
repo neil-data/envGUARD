@@ -287,6 +287,9 @@ def scan_cmd(
         stats = {"files_scanned": 0, "files_skipped": 0}
 
         if changed:
+            if base and base.startswith("-"):
+                from envguard.exceptions import GitError
+                raise GitError(f"Invalid Git reference '{base}': reference cannot begin with '-'")
             findings = scan_directory(
                 directory=target,
                 patterns=patterns,
@@ -494,6 +497,9 @@ def ci_cmd(
 
             # Determine base reference
             target_base = base or config.ci.base_branch or ci_env.base_ref
+            if target_base and target_base.startswith("-"):
+                from envguard.exceptions import GitError
+                raise GitError(f"Invalid Git reference '{target_base}': reference cannot begin with '-'")
             if not target_base:
                 target_base = get_default_base_branch(repo_root)
             if not target_base:
@@ -666,8 +672,8 @@ def check_cmd(ctx: click.Context, output_format: str, baseline_path: Optional[Pa
         baseline_fingerprints = load_baseline(resolved_baseline) if resolved_baseline else set()
         new_findings, suppressed_findings = filter_baseline_findings(findings, baseline_fingerprints)
 
-        blocking_findings = [f for f in new_findings if f.is_blocking]
-        low_findings = [f for f in new_findings if not f.is_blocking]
+        blocking_findings = [f for f in new_findings if f.is_blocking_for(config.block_on)]
+        low_findings = [f for f in new_findings if not f.is_blocking_for(config.block_on)]
 
         if output_format.lower() == "json":
             render_check_json(
@@ -780,6 +786,10 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
         config_file = find_config_file(cwd) or find_config_file(repo_root)
         config = load_config(root_dir=cwd, config_path=config_file)
 
+        if is_verbose and config.warnings:
+            for w in config.warnings:
+                console.print(f"[yellow]Config warning:[/yellow] {w}", file=sys.stderr)
+
         # 1. Check .env tracked
         env_tracked = is_git and is_env_tracked(repo_root)
 
@@ -794,6 +804,7 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
             respect_gitignore=True,
             exclude_patterns=config.exclude,
             max_file_size_bytes=config.max_file_size_bytes,
+            advanced_config=config.advanced_detection,
         )
 
         # 3. Check .env vs .env.example

@@ -162,6 +162,8 @@ def load_config(root_dir: Optional[Path] = None, config_path: Optional[Path] = N
     if disabled_val is None:
         disabled_val = rules_section.get("disable")
     if disabled_val is None:
+        disabled_val = raw_data.get("disabled_rules")
+    if disabled_val is None:
         disabled_val = []
     if not isinstance(disabled_val, list):
         raise ConfigurationError(
@@ -253,7 +255,19 @@ def load_config(root_dir: Optional[Path] = None, config_path: Optional[Path] = N
             received=type(block_on_val).__name__,
             config_path=config_filename,
         )
-    block_on = [str(b).upper() for b in block_on_val]
+    block_on = []
+    for b in block_on_val:
+        b_str = str(b).strip().upper()
+        if b_str not in VALID_SEVERITIES:
+            raise ConfigurationError(
+                f"Invalid severity '{b}' in 'block_on'. Allowed: {', '.join(sorted(VALID_SEVERITIES))}",
+                field="block_on",
+                expected=f"one of {', '.join(sorted(VALID_SEVERITIES))}",
+                received=str(b),
+                config_path=config_filename,
+                example="scan:\n  block_on:\n    - HIGH\n    - MEDIUM",
+            )
+        block_on.append(b_str)
 
     # 7. Reporting section
     reporting_section = raw_data.get("reporting")
@@ -428,6 +442,14 @@ def load_config(root_dir: Optional[Path] = None, config_path: Optional[Path] = N
                     received=type(bb).__name__,
                     config_path=config_filename,
                 )
+            if bb and bb.startswith("-"):
+                raise ConfigurationError(
+                    f"Invalid Git reference in 'ci.base_branch': cannot begin with '-' ('{bb}')",
+                    field="ci.base_branch",
+                    expected="valid Git branch or ref name",
+                    received=bb,
+                    config_path=config_filename,
+                )
             base_b = bb
 
         annot = ci_config.annotations
@@ -478,6 +500,25 @@ def load_config(root_dir: Optional[Path] = None, config_path: Optional[Path] = N
     for o_rule in severity_overrides:
         if o_rule not in known_rules:
             warnings.append(f"Unknown rule ID '{o_rule}' in rules.severity_overrides")
+
+    # 11. Validate top-level keys
+    known_top_level_keys = {
+        "version",
+        "scan",
+        "exclude",
+        "rules",
+        "placeholders",
+        "git",
+        "block_on",
+        "reporting",
+        "advanced_detection",
+        "ci",
+        "disabled_rules",
+        "severity_overrides",
+    }
+    for k in raw_data:
+        if k not in known_top_level_keys:
+            warnings.append(f"Unknown top-level key '{k}' in configuration file '{config_filename}'")
 
     return EnvGuardConfig(
         version=version,

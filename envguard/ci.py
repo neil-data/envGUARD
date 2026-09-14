@@ -1,4 +1,4 @@
-"""CI/CD environment detection for EnvGuard v0.5.3.
+"""CI/CD environment detection for EnvGuard v0.5.4.
 
 Detects running CI environments (GitHub Actions, GitLab CI, CircleCI, Jenkins,
 Azure Pipelines, or Generic CI) and extracts pipeline metadata safely.

@@ -26,12 +26,12 @@ from envguard.scanner import scan_lines, scan_text
 
 
 def test_v053_version():
-    """Verify version bumped to 0.5.3."""
-    assert __version__ == "0.5.3"
+    """Verify version is at least 0.5.3."""
+    assert __version__ >= "0.5.3"
     runner = CliRunner()
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.5.3" in result.output
+    assert __version__ in result.output
 
 
 def test_bug_1_status_and_doctor_agree_on_baseline(tmp_path, monkeypatch):

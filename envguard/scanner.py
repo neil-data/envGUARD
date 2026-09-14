@@ -143,6 +143,8 @@ def deduplicate_and_merge_candidates(
                 return 50
             if c.source == "jwt":
                 return 40
+            if c.source == "regex" and r_id in ("db-password-assignment", "secret-key-assignment"):
+                return 35
             if c.source == "regex" and not r_id.startswith("generic-"):
                 return 30
             if c.rule_id == "generic-high-entropy-secret":

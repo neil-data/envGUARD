@@ -84,6 +84,7 @@ def run_status_action(cwd: Path) -> None:
         respect_gitignore=True,
         exclude_patterns=config.exclude,
         max_file_size_bytes=config.max_file_size_bytes,
+        advanced_config=config.advanced_detection,
     )
 
     env_file = cwd / ".env"
@@ -147,6 +148,7 @@ def run_scan_action(cwd: Path) -> None:
             exclude_patterns=config.exclude,
             max_file_size_bytes=config.max_file_size_bytes,
             stats=stats,
+            advanced_config=config.advanced_detection,
         )
     print_scan_findings(findings, title=f"Scan Report: {cwd.name}", stats=stats)
 
@@ -176,10 +178,11 @@ def run_check_action(cwd: Path) -> None:
         patterns=patterns,
         max_file_size_bytes=config.max_file_size_bytes,
         exclude_patterns=config.exclude,
+        advanced_config=config.advanced_detection,
     )
 
-    blocking = [f for f in findings if f.is_blocking]
-    low_findings = [f for f in findings if not f.is_blocking]
+    blocking = [f for f in findings if f.is_blocking_for(config.block_on)]
+    low_findings = [f for f in findings if not f.is_blocking_for(config.block_on)]
 
     if blocking:
         print_blocked_commit(blocking)

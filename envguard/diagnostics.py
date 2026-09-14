@@ -113,10 +113,22 @@ def run_diagnostics(repo_path: Path) -> DiagnosticReport:
 
     # 5. Configuration
     config_file = repo_path / ".envguard.yml"
+    cfg = None
     if config_file.is_file():
         try:
             cfg = load_config(repo_path)
-            report.checks.append(DiagnosticCheck("Repository Config", "PASS", ".envguard.yml present and valid"))
+            if cfg.warnings:
+                warnings_str = "; ".join(cfg.warnings)
+                report.checks.append(
+                    DiagnosticCheck(
+                        "Repository Config",
+                        "WARNING",
+                        f".envguard.yml has warnings: {warnings_str}",
+                        "Review .envguard.yml and fix unrecognized or typo'd keys.",
+                    )
+                )
+            else:
+                report.checks.append(DiagnosticCheck("Repository Config", "PASS", ".envguard.yml present and valid"))
         except Exception as e:
             report.checks.append(DiagnosticCheck("Repository Config", "ERROR", f".envguard.yml parse error: {e}", "Fix SYNTAX errors in .envguard.yml."))
     else:
@@ -124,7 +136,12 @@ def run_diagnostics(repo_path: Path) -> DiagnosticReport:
 
     # 6. Rules
     try:
-        patterns = load_default_patterns()
+        disabled_rules = cfg.disabled_rules if cfg else None
+        severity_overrides = cfg.severity_overrides if cfg else None
+        patterns = load_default_patterns(
+            disabled_rules=disabled_rules,
+            severity_overrides=severity_overrides,
+        )
         enabled = sum(1 for p in patterns if p.enabled)
         report.checks.append(DiagnosticCheck("Secret Rules", "PASS", f"{enabled} rules active ({len(patterns)} total)"))
     except Exception as e:
