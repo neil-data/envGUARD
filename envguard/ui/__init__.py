@@ -1,7 +1,4 @@
-"""Centralized Rich theme and UI components for EnvGuard.
-
-Backward compatibility shim: Re-exports all symbols from `envguard.ui.theme`.
-"""
+"""EnvGuard UI package providing centralized Rich styling, widgets, and themes."""
 
 from envguard.ui.theme import (
     COLOR_ERROR,
@@ -84,4 +81,3 @@ __all__ = [
     "create_standard_table",
     "render_finding_snippet",
 ]
-

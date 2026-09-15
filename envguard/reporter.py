@@ -35,9 +35,19 @@ from envguard.theme import (
     COLOR_HIGH,
     COLOR_INFO,
     COLOR_LOW,
+    COLOR_MASKED,
     COLOR_MEDIUM,
     COLOR_SUCCESS,
     COLOR_WARNING,
+    BADGE_BLOCKED,
+    BADGE_CLEAN,
+    BADGE_CRITICAL,
+    BADGE_ERROR,
+    BADGE_HIGH,
+    BADGE_LOW,
+    BADGE_MEDIUM,
+    BADGE_PASS,
+    BADGE_WARNING,
     SYMBOL_ERROR,
     SYMBOL_INFO,
     SYMBOL_SUCCESS,
@@ -46,9 +56,12 @@ from envguard.theme import (
     err_console,
     create_error_panel,
     create_panel,
+    create_standard_table,
     create_success_panel,
     create_summary_panel,
     format_severity,
+    format_status,
+    render_finding_snippet,
 )
 
 JSON_SCHEMA_VERSION = 1
@@ -659,6 +672,29 @@ def print_scan_findings(
     console.print()
     console.print(table)
 
+    # Render syntax-highlighted code snippet panels for findings with source context
+    snippet_findings = [f for f in findings if getattr(f, "line_snippet", None)]
+    if snippet_findings:
+        console.print()
+        for idx, f in enumerate(snippet_findings, 1):
+            syntax_renderable = render_finding_snippet(
+                raw_snippet=f.line_snippet,
+                raw_value=f.raw_value,
+                masked_value=f.masked_value,
+                file_path=f.file_path,
+                line_number=f.line_number,
+            )
+            if syntax_renderable:
+                title = f"[bold]{f.file_path}[/bold]:{f.line_number} — [bold red]{f.rule_name}[/bold red]"
+                console.print(
+                    create_panel(
+                        syntax_renderable,
+                        title=title,
+                        border_style="red" if f.severity == "HIGH" else ("yellow" if f.severity == "MEDIUM" else "blue"),
+                        padding=(0, 1),
+                    )
+                )
+
     # 3. Concise breakdown footer
     high_count = sum(1 for f in findings if f.severity == "HIGH")
     med_count = sum(1 for f in findings if f.severity == "MEDIUM")
@@ -728,6 +764,29 @@ def print_blocked_commit(findings: List[ScanFinding]) -> None:
 
     console.print(table)
     console.print()
+
+    # Render syntax-highlighted code snippet panels for blocking findings with line snippets
+    snippet_findings = [f for f in findings if getattr(f, "line_snippet", None)]
+    if snippet_findings:
+        for f in snippet_findings:
+            syntax_renderable = render_finding_snippet(
+                raw_snippet=f.line_snippet,
+                raw_value=f.raw_value,
+                masked_value=f.masked_value,
+                file_path=f.file_path,
+                line_number=f.line_number,
+            )
+            if syntax_renderable:
+                title = f"[bold]{f.file_path}[/bold]:{f.line_number} — [bold red]{f.rule_name}[/bold red]"
+                console.print(
+                    create_panel(
+                        syntax_renderable,
+                        title=title,
+                        border_style="red" if f.severity == "HIGH" else "yellow",
+                        padding=(0, 1),
+                    )
+                )
+        console.print()
 
     # Generic Remediation Steps
     steps = (
@@ -830,6 +889,29 @@ def print_blocked_push(
 
     console.print(table)
     console.print()
+
+    # Render syntax-highlighted code snippet panels for blocking findings with line snippets
+    snippet_findings = [f for f in findings if getattr(f, "line_snippet", None)]
+    if snippet_findings:
+        for f in snippet_findings:
+            syntax_renderable = render_finding_snippet(
+                raw_snippet=f.line_snippet,
+                raw_value=f.raw_value,
+                masked_value=f.masked_value,
+                file_path=f.file_path,
+                line_number=f.line_number,
+            )
+            if syntax_renderable:
+                title = f"[bold]{f.file_path}[/bold]:{f.line_number} — [bold red]{f.rule_name}[/bold red]"
+                console.print(
+                    create_panel(
+                        syntax_renderable,
+                        title=title,
+                        border_style="red" if f.severity == "HIGH" else "yellow",
+                        padding=(0, 1),
+                    )
+                )
+        console.print()
 
     steps = (
         "[bold cyan]1.[/bold cyan] Rewrite or amend outgoing commit(s) to remove leaked secrets.\n"

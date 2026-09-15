@@ -42,8 +42,8 @@ def git_repo(tmp_path):
 
 
 def test_v070_version():
-    """Verify EnvGuard version is 0.7.0."""
-    assert __version__ == "0.7.0"
+    """Verify EnvGuard version is at least 0.7.0."""
+    assert __version__ in ("0.7.0", "0.7.5")
 
 
 def test_parse_pre_push_stdin_empty():

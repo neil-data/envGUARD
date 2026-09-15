@@ -1,12 +1,15 @@
 """Click CLI entry points for EnvGuard v0.3.1."""
 
+import os
 from pathlib import Path
 import sys
 import traceback
 from typing import Optional
 import click
 from rich.panel import Panel
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich import box
+from rich.traceback import install as install_rich_traceback
 
 if sys.platform == "win32":
     try:
@@ -19,6 +22,9 @@ if sys.platform == "win32":
 click.exceptions.UsageError.exit_code = 3
 click.exceptions.BadParameter.exit_code = 3
 click.exceptions.NoSuchOption.exit_code = 3
+
+# Install Rich traceback handler for unexpected, unhandled exceptions
+install_rich_traceback(show_locals=False)
 
 from envguard import __version__
 from envguard.baseline import (
@@ -288,12 +294,48 @@ def scan_cmd(
     target_dir = target if target.is_dir() else target.parent
 
     try:
+        is_interactive = (
+            sys.stdout.isatty()
+            and not os.environ.get("CI")
+            and not os.environ.get("GITHUB_ACTIONS")
+            and output_format.lower() == "text"
+        )
+
         if repos:
             repo_targets = parse_repo_targets(list(repos))
-            multi_result = scan_multiple_repositories(
-                repo_targets=repo_targets,
-                verbose=is_verbose,
-            )
+
+            if is_interactive:
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[bold cyan]{task.description}[/bold cyan]"),
+                    BarColumn(bar_width=30),
+                    TextColumn("[dim]{task.fields[filename]}[/dim]"),
+                    TimeElapsedColumn(),
+                    console=console,
+                    transient=True,
+                ) as progress:
+                    task_id = progress.add_task("Scanning repositories...", total=None, filename="")
+
+                    def repo_progress(rel_path: str, count: int, total_hint: Optional[int]) -> None:
+                        display_name = rel_path if len(rel_path) <= 35 else ("..." + rel_path[-32:])
+                        progress.update(
+                            task_id,
+                            description=f"Scanning ({count} files)",
+                            total=total_hint,
+                            filename=display_name,
+                        )
+
+                    multi_result = scan_multiple_repositories(
+                        repo_targets=repo_targets,
+                        verbose=is_verbose,
+                        progress_callback=repo_progress,
+                    )
+            else:
+                multi_result = scan_multiple_repositories(
+                    repo_targets=repo_targets,
+                    verbose=is_verbose,
+                )
+
             fmt = output_format.lower()
             if fmt == "sarif":
                 render_sarif(multi_result.all_findings, output_path=output_file)
@@ -321,18 +363,54 @@ def scan_cmd(
             if base and base.startswith("-"):
                 from envguard.exceptions import GitError
                 raise GitError(f"Invalid Git reference '{base}': reference cannot begin with '-'")
-            findings = scan_directory(
-                directory=target,
-                patterns=patterns,
-                respect_gitignore=True,
-                exclude_patterns=config.exclude,
-                max_file_size_bytes=config.max_file_size_bytes,
-                verbose_log=verbose_log,
-                stats=stats,
-                advanced_config=config.advanced_detection,
-                changed_only=True,
-                base_ref=base,
-            )
+
+            if is_interactive:
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[bold cyan]{task.description}[/bold cyan]"),
+                    BarColumn(bar_width=30),
+                    TextColumn("[dim]{task.fields[filename]}[/dim]"),
+                    TimeElapsedColumn(),
+                    console=console,
+                    transient=True,
+                ) as progress:
+                    task_id = progress.add_task("Scanning changed files...", total=None, filename="")
+
+                    def scan_progress(rel_path: str, count: int, total_hint: Optional[int]) -> None:
+                        display_name = rel_path if len(rel_path) <= 35 else ("..." + rel_path[-32:])
+                        progress.update(
+                            task_id,
+                            description=f"Scanning changed files ({count})",
+                            total=total_hint,
+                            filename=display_name,
+                        )
+
+                    findings = scan_directory(
+                        directory=target,
+                        patterns=patterns,
+                        respect_gitignore=True,
+                        exclude_patterns=config.exclude,
+                        max_file_size_bytes=config.max_file_size_bytes,
+                        verbose_log=verbose_log,
+                        stats=stats,
+                        advanced_config=config.advanced_detection,
+                        changed_only=True,
+                        base_ref=base,
+                        progress_callback=scan_progress,
+                    )
+            else:
+                findings = scan_directory(
+                    directory=target,
+                    patterns=patterns,
+                    respect_gitignore=True,
+                    exclude_patterns=config.exclude,
+                    max_file_size_bytes=config.max_file_size_bytes,
+                    verbose_log=verbose_log,
+                    stats=stats,
+                    advanced_config=config.advanced_detection,
+                    changed_only=True,
+                    base_ref=base,
+                )
         elif target.is_file():
             from envguard.scanner import scan_file_streaming
             findings, skip_reason = scan_file_streaming(
@@ -349,7 +427,39 @@ def scan_cmd(
             else:
                 stats["files_scanned"] = 1
         else:
-            if output_format.lower() in ("json", "sarif"):
+            if is_interactive:
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[bold cyan]{task.description}[/bold cyan]"),
+                    BarColumn(bar_width=30),
+                    TextColumn("[dim]{task.fields[filename]}[/dim]"),
+                    TimeElapsedColumn(),
+                    console=console,
+                    transient=True,
+                ) as progress:
+                    task_id = progress.add_task("Scanning project files...", total=None, filename="")
+
+                    def scan_progress(rel_path: str, count: int, total_hint: Optional[int]) -> None:
+                        display_name = rel_path if len(rel_path) <= 35 else ("..." + rel_path[-32:])
+                        progress.update(
+                            task_id,
+                            description=f"Scanning project files ({count})",
+                            total=total_hint,
+                            filename=display_name,
+                        )
+
+                    findings = scan_directory(
+                        directory=target,
+                        patterns=patterns,
+                        respect_gitignore=True,
+                        exclude_patterns=config.exclude,
+                        max_file_size_bytes=config.max_file_size_bytes,
+                        verbose_log=verbose_log,
+                        stats=stats,
+                        advanced_config=config.advanced_detection,
+                        progress_callback=scan_progress,
+                    )
+            else:
                 findings = scan_directory(
                     directory=target,
                     patterns=patterns,
@@ -360,18 +470,6 @@ def scan_cmd(
                     stats=stats,
                     advanced_config=config.advanced_detection,
                 )
-            else:
-                with console.status("[bold cyan]Scanning project files for secrets...[/bold cyan]", spinner="dots"):
-                    findings = scan_directory(
-                        directory=target,
-                        patterns=patterns,
-                        respect_gitignore=True,
-                        exclude_patterns=config.exclude,
-                        max_file_size_bytes=config.max_file_size_bytes,
-                        verbose_log=verbose_log,
-                        stats=stats,
-                        advanced_config=config.advanced_detection,
-                    )
 
         if is_verbose and verbose_log:
             max_entries = 50

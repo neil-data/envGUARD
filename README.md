@@ -6,14 +6,15 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/version-0.7.0-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
+[![Release](https://img.shields.io/badge/version-0.7.5-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
-[![Tests](https://img.shields.io/badge/tests-190%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-199%20passed-brightgreen.svg)](#testing)
 
 
 <p>
   <a href="#why-envguard">Why EnvGuard</a> ·
   <a href="#key-features">Key Features</a> ·
+  <a href="#terminal-ui--presentation-layer">Rich Terminal UI</a> ·
   <a href="#developer-workflow-integration">Developer Workflows</a> ·
   <a href="#installation">Installation</a> ·
   <a href="#cli-commands">CLI Commands</a> ·
@@ -32,7 +33,7 @@
 
 Secret leaks into Git are one of the most common, preventable security incidents in software development — a misconfigured `.gitignore`, a key pasted into a tracked file, or a commit made before anyone double-checks what's staged. Existing scanners such as Gitleaks and TruffleHog are excellent, but they're built for CI pipelines and security teams, not the moment right before a developer runs `git commit` or `git push`.
 
-EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable. With v0.5.0, that same protection extended into CI/CD pipelines and pull requests. With v0.6.0, team-wide organization policies and multi-repository scanning brought enterprise-grade workflows while maintaining 100% local-first privacy. With v0.7.0, developer workflow integrations — including a native Git pre-push hook, a zero-dependency filesystem watcher, and editor-compatible diagnostic JSON — catch secrets even earlier in active developer workflows.
+EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable. With v0.5.0, that same protection extended into CI/CD pipelines and pull requests. With v0.6.0, team-wide organization policies and multi-repository scanning brought enterprise-grade workflows while maintaining 100% local-first privacy. With v0.7.0, developer workflow integrations — including a native Git pre-push hook, a zero-dependency filesystem watcher, and editor-compatible diagnostic JSON — catch secrets even earlier in active developer workflows. With v0.7.5, a full Rich terminal overhaul introduces centralized UI theming, interactive scan progress bars, a real-time live watch dashboard, and pre-masked syntax-highlighted code snippets.
 
 ---
 
@@ -56,6 +57,7 @@ All secret detection, line-by-line streaming, SHA-256 baseline fingerprinting, a
 
 | Feature | Description |
 |---|---|
+| **Rich Terminal UI Overhaul** (`v0.7.5`) | Centralized theme system (`envguard/ui/theme.py`), interactive scan progress bars (`rich.progress.Progress`), real-time live monitoring dashboard in `envguard watch` (`rich.live.Live`), syntax-highlighted code snippets with strict pre-highlight secret masking, and outermost clean Rich tracebacks. |
 | **Developer Workflow Integration** (`v0.7.0`) | Git pre-push hook (`envguard pre-push`, `envguard install-hook --type pre-push`) with full protocol conformance and ref-injection defenses; zero-dependency filesystem watch mode (`envguard watch`) with debounced scans; and editor-compatible IDE JSON format (`envguard scan --format ide`) with 1-based ranges. |
 | **Team & Multi-Repo Workflows** (`v0.6.0`) | Organization security floor (`.envguard-org.yml`), multi-repo scanning (`envguard scan --repos`), clear blocker attribution (`organization policy` vs `local policy`), tolerant error isolation, and CLI injection protection. |
 | **CI/CD & GitHub Ecosystem** (`v0.5.0`) | Dedicated `envguard ci` command, environment detection (GitHub Actions, GitLab CI, CircleCI, Azure Pipelines, Jenkins), changed-file diff scanning (`--changed`, `--base`), SARIF 2.1.0 generation, GitHub Actions annotations, and job summaries. |
@@ -75,7 +77,7 @@ All secret detection, line-by-line streaming, SHA-256 baseline fingerprinting, a
 
 **Option 1 — From wheel**
 ```bash
-pip install dist/envguard-0.7.0-py3-none-any.whl
+pip install dist/envguard-0.7.5-py3-none-any.whl
 ```
 
 **Option 2 — Editable / developer mode**
@@ -88,7 +90,7 @@ pip install -e .
 Verify the install:
 ```bash
 envguard --version
-# EnvGuard version 0.7.0
+# EnvGuard version 0.7.5
 ```
 
 Works identically in cmd, PowerShell, and Unix shells.
@@ -519,6 +521,16 @@ The organization policy establishes a non-negotiable **security floor** that ind
 | `2` | Runtime / config error | Invalid `.envguard.yml`, missing required file, Git error |
 | `3` | Invalid CLI usage | Unknown flags, missing required arguments, bad options |
 
+## Rich Terminal UI Overhaul (v0.7.5)
+
+EnvGuard v0.7.5 overhauls the terminal user interface using Rich while keeping all underlying detection, Git handling, and output contracts untouched:
+
+- **Centralized UI Theme (`envguard.ui.theme`)**: Single source of truth for severity badges (`HIGH`, `MEDIUM`, `LOW`), status badges (`PASS`, `WARNING`, `ERROR`, `BLOCKED`, `CLEAN`, `CRITICAL`), standardized panels, and tables.
+- **Interactive Scan Progress**: Uses `rich.progress.Progress` for responsive progress tracking in terminal sessions. Automatically and strictly suppressed in CI environments, non-TTY outputs, and machine-readable formats (`--format json`, `--format sarif`, `--format ide`).
+- **Watch Live Monitoring Dashboard**: Upgrades `envguard watch` to use `rich.live.Live` with a compact status panel displaying directory, tracked count, status, last checked time, and recent activity, alongside graceful `Ctrl+C` exit without tracebacks.
+- **Syntax Highlighting with Pre-Masking Security**: Code snippets are rendered with syntax highlighting using `rich.syntax.Syntax`. Plaintext secrets are strictly masked *prior* to reaching the syntax lexer, guaranteeing raw secrets never leak into AST or terminal buffers.
+- **Clean Exception Handling**: Known configuration, Git, and scanning errors are presented in clear Rich panels, while unexpected exceptions are formatted via `rich.traceback`.
+
 ---
 
 ## Developer Workflow Integration (v0.7.0)
@@ -719,7 +731,8 @@ tests/test_v070_watch.py::test_watcher_detects_modification_with_debounce PASSED
 | v0.5.5 | Micro Patch Update (Rich Console Stderr Fix, Status Command Config Warnings Surface) | Complete |
 | v0.6.0 | Team & Multi-Repo Workflows (Organization Security Floor, Multi-Repo Scanning, Blocker Attribution) | Complete |
 | v0.6.6 | Patch Update (Organization Policy locked_disabled_rules Schema Fix, Multi-Repo Scan TypeError Fix) | Complete |
-| **v0.7.0** | **Developer Workflow Integration (Git Pre-Push Hook, Filesystem Watch Mode, IDE Diagnostic JSON)** | **Current Release ✅** |
+| v0.7.0 | Developer Workflow Integration (Git Pre-Push Hook, Filesystem Watch Mode, IDE Diagnostic JSON) | Complete |
+| **v0.7.5** | **Full Rich Terminal UI Overhaul (Theme System, Progress Bars, Watch Live Dashboard, Syntax Highlighting)** | **Current Release ✅** |
 | v1.0.0 | Stable production release | Target |
 
 

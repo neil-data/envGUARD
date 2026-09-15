@@ -27,11 +27,17 @@ from envguard.theme import (
     COLOR_LOW,
     COLOR_MEDIUM,
     console,
+    create_panel,
     err_console,
     format_severity,
+    render_finding_snippet,
 )
 from rich import box
+from rich.console import Group
+from rich.live import Live
+from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 BUILTIN_IGNORED_DIRS: Set[str] = {
     ".git",
@@ -216,6 +222,41 @@ class FileWatcher:
 
         return findings
 
+    def create_status_panel(self, status: str = "IDLE", last_event: str = "Watching for file modifications") -> Panel:
+        """Create a compact live monitoring status dashboard."""
+        total_tracked = len(self.snapshot)
+        ts = datetime.now().strftime("%H:%M:%S")
+
+        status_badge = "[bold green]IDLE[/bold green]"
+        border_color = "cyan"
+        if status == "SCANNING":
+            status_badge = "[bold yellow]SCANNING[/bold yellow]"
+            border_color = "yellow"
+        elif status == "ALERT":
+            status_badge = "[bold red]ALERT[/bold red]"
+            border_color = "red"
+        elif status == "CLEAN":
+            status_badge = "[bold green]CLEAN[/bold green]"
+            border_color = "green"
+
+        grid = Table.grid(padding=(0, 2))
+        grid.add_column(style="bold")
+        grid.add_column()
+        grid.add_row("Directory:", f"[cyan]{self.root}[/cyan]")
+        grid.add_row("Tracked Files:", f"[dim]{total_tracked}[/dim]")
+        grid.add_row("Status:", status_badge)
+        grid.add_row("Last Checked:", f"[dim]{ts}[/dim]")
+        grid.add_row("Activity:", f"{last_event}")
+
+        return Panel(
+            grid,
+            title="[bold cyan]EnvGuard Watcher[/bold cyan]",
+            border_style=border_color,
+            box=box.ROUNDED,
+            expand=False,
+            padding=(0, 1),
+        )
+
     def print_batch_results(self, rel_path: str, findings: List[ScanFinding]) -> None:
         """Render watch results for a modified file to terminal."""
         ts = datetime.now().strftime("%H:%M:%S")
@@ -239,7 +280,7 @@ class FileWatcher:
         console.print(f"\n[dim]{ts}[/dim] [red]✗[/red] [bold red]{rel_path}[/bold red] — Leaks detected ({summary_str})")
 
         table = Table(
-            box=box.SIMPLE,
+            box=box.ROUNDED,
             show_header=True,
             header_style="bold",
             padding=(0, 1),
@@ -268,34 +309,87 @@ class FileWatcher:
             table.add_row(*row)
 
         console.print(table)
+
+        # Render code snippet if available
+        for f in findings:
+            if getattr(f, "line_snippet", None):
+                snippet = render_finding_snippet(
+                    raw_snippet=f.line_snippet,
+                    raw_value=f.raw_value,
+                    masked_value=f.masked_value,
+                    file_path=f.file_path,
+                    line_number=f.line_number,
+                )
+                if snippet:
+                    console.print(
+                        create_panel(
+                            snippet,
+                            title=f"[bold]{f.file_path}[/bold]:{f.line_number} — [bold red]{f.rule_name}[/bold red]",
+                            border_style="red" if f.severity == "HIGH" else "yellow",
+                            padding=(0, 1),
+                        )
+                    )
         console.print()
 
     def run(self, max_iterations: Optional[int] = None) -> None:
         """Start the file watching loop."""
         self.initialize_snapshot()
-        total_tracked = len(self.snapshot)
 
-        console.print()
-        console.print("[bold green]EnvGuard Watcher[/bold green] is active.")
-        console.print(f"Monitoring: [cyan]{self.root}[/cyan] ([dim]{total_tracked} file(s) tracked[/dim])")
-        console.print("Press [bold]Ctrl+C[/bold] to exit.\n")
+        is_interactive = sys.stdout.isatty() and not os.environ.get("CI") and max_iterations is None
 
-        iterations = 0
-        try:
-            while True:
-                ready_files = self.check_for_changes()
-                for rel_path in ready_files:
-                    findings = self.scan_file_rel(rel_path)
-                    self.print_batch_results(rel_path, findings)
+        if is_interactive:
+            try:
+                with Live(
+                    self.create_status_panel("IDLE", "Watching for file modifications"),
+                    console=console,
+                    refresh_per_second=4,
+                    transient=False,
+                ) as live:
+                    iterations = 0
+                    while True:
+                        ready_files = self.check_for_changes()
+                        if ready_files:
+                            live.update(self.create_status_panel("SCANNING", f"Scanning {len(ready_files)} modified file(s)..."))
+                            for rel_path in ready_files:
+                                findings = self.scan_file_rel(rel_path)
+                                # Print findings outside live panel to preserve scrollable history
+                                console.print()
+                                self.print_batch_results(rel_path, findings)
+                            status_label = "ALERT" if any(len(self.scan_file_rel(p)) > 0 for p in ready_files) else "CLEAN"
+                            live.update(self.create_status_panel(status_label, f"Processed {len(ready_files)} file(s)"))
+                        else:
+                            live.update(self.create_status_panel("IDLE", "Watching for file modifications"))
 
-                iterations += 1
-                if max_iterations is not None and iterations >= max_iterations:
-                    break
+                        iterations += 1
+                        if max_iterations is not None and iterations >= max_iterations:
+                            break
 
-                time.sleep(self.poll_interval)
-        except KeyboardInterrupt:
-            console.print("\n[dim]EnvGuard Watcher stopped.[/dim]")
-            sys.exit(0)
+                        time.sleep(self.poll_interval)
+            except KeyboardInterrupt:
+                console.print("\n[dim]EnvGuard Watcher stopped.[/dim]")
+                sys.exit(0)
+        else:
+            console.print()
+            console.print("[bold green]EnvGuard Watcher[/bold green] is active.")
+            console.print(f"Monitoring: [cyan]{self.root}[/cyan] ([dim]{len(self.snapshot)} file(s) tracked[/dim])")
+            console.print("Press [bold]Ctrl+C[/bold] to exit.\n")
+
+            iterations = 0
+            try:
+                while True:
+                    ready_files = self.check_for_changes()
+                    for rel_path in ready_files:
+                        findings = self.scan_file_rel(rel_path)
+                        self.print_batch_results(rel_path, findings)
+
+                    iterations += 1
+                    if max_iterations is not None and iterations >= max_iterations:
+                        break
+
+                    time.sleep(self.poll_interval)
+            except KeyboardInterrupt:
+                console.print("\n[dim]EnvGuard Watcher stopped.[/dim]")
+                sys.exit(0)
 
 
 def run_watch(

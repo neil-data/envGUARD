@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import hashlib
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import pathspec
 
 from envguard.detectors import (
@@ -437,6 +437,7 @@ def scan_files(
     verbose_log: Optional[List[str]] = None,
     stats: Optional[Dict[str, int]] = None,
     advanced_config: Optional[AdvancedDetectionConfig] = None,
+    progress_callback: Optional[Callable[[str, int, Optional[int]], None]] = None,
 ) -> List[ScanFinding]:
     """Scan an explicit list of file paths against secret patterns."""
     if patterns is None:
@@ -501,6 +502,11 @@ def scan_files(
                 stats["files_scanned"] += 1
             all_findings.extend(findings)
 
+        if progress_callback is not None:
+            current_count = stats.get("files_scanned", 0) if stats else len(all_findings)
+            total_hint = len(files)
+            progress_callback(rel_path, current_count, total_hint)
+
     return all_findings
 
 
@@ -515,6 +521,7 @@ def scan_directory(
     advanced_config: Optional[AdvancedDetectionConfig] = None,
     changed_only: bool = False,
     base_ref: Optional[str] = None,
+    progress_callback: Optional[Callable[[str, int, Optional[int]], None]] = None,
 ) -> List[ScanFinding]:
     """Scan current working directory recursively with streaming, .envguardignore, and suppression.
 
@@ -542,6 +549,7 @@ def scan_directory(
             verbose_log=verbose_log,
             stats=stats,
             advanced_config=advanced_config,
+            progress_callback=progress_callback,
         )
 
     if stats is not None:
@@ -640,6 +648,10 @@ def scan_directory(
                 if stats is not None:
                     stats["files_scanned"] += 1
                 all_findings.extend(findings)
+
+            if progress_callback is not None:
+                current_count = stats.get("files_scanned", 0) if stats else len(all_findings)
+                progress_callback(rel_path, current_count, None)
 
     return all_findings
 

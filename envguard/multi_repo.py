@@ -10,7 +10,7 @@ Provides independent, tolerant, and secure multi-repository scanning:
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set
 
 from envguard.baseline import DEFAULT_BASELINE_FILENAME, load_baseline
 from envguard.config import EnvGuardConfig, load_config
@@ -155,6 +155,7 @@ def parse_repo_targets(repo_args: List[str]) -> List[Path]:
 def scan_multiple_repositories(
     repo_targets: List[Path],
     verbose: bool = False,
+    progress_callback: Optional[Callable[[str, int, Optional[int]], None]] = None,
 ) -> MultiRepoScanResult:
     """Execute independent security scan across multiple repositories.
 
@@ -218,6 +219,7 @@ def scan_multiple_repositories(
                 max_file_size_bytes=config.max_file_size_bytes,
                 stats=stats,
                 advanced_config=config.advanced_detection,
+                progress_callback=progress_callback,
             )
 
             # Filter baseline suppressions and tag findings
