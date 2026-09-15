@@ -8,12 +8,13 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Release](https://img.shields.io/badge/version-0.7.0-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
-[![Tests](https://img.shields.io/badge/tests-169%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-190%20passed-brightgreen.svg)](#testing)
 
 
 <p>
   <a href="#why-envguard">Why EnvGuard</a> ·
   <a href="#key-features">Key Features</a> ·
+  <a href="#developer-workflow-integration">Developer Workflows</a> ·
   <a href="#installation">Installation</a> ·
   <a href="#cli-commands">CLI Commands</a> ·
   <a href="#interactive-console">Interactive Console</a> ·
@@ -29,9 +30,9 @@
 
 ## Why EnvGuard
 
-Secret leaks into Git are one of the most common, preventable security incidents in software development — a misconfigured `.gitignore`, a key pasted into a tracked file, or a commit made before anyone double-checks what's staged. Existing scanners such as Gitleaks and TruffleHog are excellent, but they're built for CI pipelines and security teams, not the moment right before a developer runs `git commit`.
+Secret leaks into Git are one of the most common, preventable security incidents in software development — a misconfigured `.gitignore`, a key pasted into a tracked file, or a commit made before anyone double-checks what's staged. Existing scanners such as Gitleaks and TruffleHog are excellent, but they're built for CI pipelines and security teams, not the moment right before a developer runs `git commit` or `git push`.
 
-EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable. With v0.5.0, that same protection extended into CI/CD pipelines and pull requests. With v0.6.0, team-wide organization policies and multi-repository scanning bring enterprise-grade workflows while maintaining 100% local-first privacy.
+EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable. With v0.5.0, that same protection extended into CI/CD pipelines and pull requests. With v0.6.0, team-wide organization policies and multi-repository scanning brought enterprise-grade workflows while maintaining 100% local-first privacy. With v0.7.0, developer workflow integrations — including a native Git pre-push hook, a zero-dependency filesystem watcher, and editor-compatible diagnostic JSON — catch secrets even earlier in active developer workflows.
 
 ---
 
@@ -55,6 +56,7 @@ All secret detection, line-by-line streaming, SHA-256 baseline fingerprinting, a
 
 | Feature | Description |
 |---|---|
+| **Developer Workflow Integration** (`v0.7.0`) | Git pre-push hook (`envguard pre-push`, `envguard install-hook --type pre-push`) with full protocol conformance and ref-injection defenses; zero-dependency filesystem watch mode (`envguard watch`) with debounced scans; and editor-compatible IDE JSON format (`envguard scan --format ide`) with 1-based ranges. |
 | **Team & Multi-Repo Workflows** (`v0.6.0`) | Organization security floor (`.envguard-org.yml`), multi-repo scanning (`envguard scan --repos`), clear blocker attribution (`organization policy` vs `local policy`), tolerant error isolation, and CLI injection protection. |
 | **CI/CD & GitHub Ecosystem** (`v0.5.0`) | Dedicated `envguard ci` command, environment detection (GitHub Actions, GitLab CI, CircleCI, Azure Pipelines, Jenkins), changed-file diff scanning (`--changed`, `--base`), SARIF 2.1.0 generation, GitHub Actions annotations, and job summaries. |
 | **Advanced Detection Engine** (`v0.4.0`) | Multi-signal detection combining known patterns, Shannon entropy ($H \ge 4.0$), structural JWT validation, and context heuristics. |
@@ -86,7 +88,7 @@ pip install -e .
 Verify the install:
 ```bash
 envguard --version
-# EnvGuard version 0.5.5
+# EnvGuard version 0.7.0
 ```
 
 Works identically in cmd, PowerShell, and Unix shells.
@@ -519,6 +521,79 @@ The organization policy establishes a non-negotiable **security floor** that ind
 
 ---
 
+## Developer Workflow Integration (v0.7.0)
+
+EnvGuard v0.7.0 integrates secret detection directly into active developer workflows — eliminating friction, catching leaks earlier, and avoiding post-push secret exposure incidents.
+
+### 1. Production Git Pre-Push Hook
+
+While pre-commit catches uncommitted staged secrets, the **pre-push hook** serves as the definitive perimeter defense before commits leave the developer's machine and propagate to remotes.
+
+- **Full Git Protocol Compliance**: Intercepts Git's stdin stream (`<local-ref> <local-sha> <remote-ref> <remote-sha>`) across single or multiple ref pushes.
+- **Deep Commit Range Resolution**: Accurately computes commit ranges for branch updates (`remote_sha..local_sha`), new branches/tags (`--not --remotes`), and gracefully skips deletions.
+- **True Git Object Inspection**: Scans files directly from Git's object store using `git diff-tree` and `git show <commit>:<path>`, catching intermediate leaks in commit chains even if undone in subsequent commits.
+- **Strict Injection Defenses**: Rejects any ref or SHA starting with `-` or containing null bytes, and terminates commands with `--`.
+- **Idempotent Installation**:
+  ```bash
+  envguard install-hook --type pre-push
+  ```
+
+### 2. Zero-Dependency Filesystem Watcher
+
+Continuous monitoring detects secrets the moment files are saved to disk — without leaving the terminal:
+
+- **100% Python Standard Library**: Runs using native `os.scandir` and filesystem `mtime_ns` / `size` caching with **zero third-party dependencies**.
+- **Debounced Event Processing**: Configurable debounce interval (default `0.3s`) prevents scan storms and duplicate alerts during rapid saves.
+- **Intelligent Pruning**: Automatically prunes `.git`, `node_modules`, `venv`, `build`, `dist`, `__pycache__`, and respects `.gitignore` and `.envguardignore`.
+- **Single Detection Engine**: Reuses the core streaming engine for identical detection accuracy across all commands.
+  ```bash
+  # Watch current directory
+  envguard watch
+
+  # Watch specific path with custom debounce delay
+  envguard watch ./src --debounce 0.5
+  ```
+
+### 3. Editor & IDE Diagnostic JSON (`--format ide`)
+
+EnvGuard v0.7.0 provides a versioned diagnostic schema (`schema_version: 1`) engineered for IDE extensions, Language Server Protocol (LSP) daemons, and editor diagnostics (VS Code, JetBrains, Neovim):
+
+- **1-Based Character Coordinates**: Every finding includes deterministic `line`, `column`, `end_line`, and `end_column` properties, with safe fallback coordinates (`min: 1`).
+- **Guaranteed Privacy**: Plaintext secrets are strictly masked (`masked_value`) and never exposed in the JSON output.
+- **Standardized Schema**:
+  ```bash
+  envguard scan --format ide
+  envguard ci --format ide
+  ```
+
+```json
+{
+  "schema_version": 1,
+  "tool": "envguard",
+  "version": "0.7.0",
+  "status": "failed",
+  "total_findings": 1,
+  "findings": [
+    {
+      "file": "src/config.py",
+      "line": 12,
+      "column": 11,
+      "end_line": 12,
+      "end_column": 31,
+      "severity": "HIGH",
+      "rule_id": "aws-access-key",
+      "rule_name": "AWS Access Key",
+      "message": "Secret detected (AWS Access Key)",
+      "fingerprint": "sha256:...",
+      "masked_value": "AKIA••••••••••••MPLE",
+      "blocked_by": "local policy"
+    }
+  ]
+}
+```
+
+---
+
 ## CI/CD Integration
 
 EnvGuard is built from the ground up for continuous integration pipelines, automated pull request validation, and GitHub Code Scanning.
@@ -616,9 +691,13 @@ tests/test_github_actions.py::test_write_github_job_summary PASSED
 tests/test_sarif.py::test_sarif_generation_schema_compliance PASSED
 tests/test_sarif.py::test_sarif_severity_mappings PASSED
 tests/test_scanner.py::test_scan_files_explicit_list PASSED
-tests/test_v042_fixes.py::test_v042_version PASSED
+tests/test_v060_features.py::test_multi_repo_scanning_clean PASSED
+tests/test_v066_fixes.py::test_bug_a_locked_disabled_rules_not_unknown_key PASSED
+tests/test_v070_pre_push.py::test_cli_pre_push_blocking_secret PASSED
+tests/test_v070_ide_json.py::test_cli_scan_ide_format PASSED
+tests/test_v070_watch.py::test_watcher_detects_modification_with_debounce PASSED
 
-============================= 132 passed in 8.25s =============================
+============================= 190 passed in 22.23s =============================
 ```
 
 ---
