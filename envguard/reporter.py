@@ -202,6 +202,47 @@ def render_scan_json(
     print_json(data, output_path=output_path)
 
 
+def render_ide_json(
+    findings: List[ScanFinding],
+    status: Optional[str] = None,
+    output_path: Optional[Path] = None,
+    tool_version: str = __version__,
+) -> None:
+    """Output scan findings in editor/IDE JSON format (schema_version 1).
+
+    Provides 1-based line and column ranges, masked values, and clean rule metadata
+    suitable for editor diagnostic providers (VS Code, JetBrains, LSP).
+    """
+    if status is None:
+        status = "failed" if any(f.severity in ("HIGH", "MEDIUM") for f in findings) else "passed"
+
+    data = {
+        "schema_version": 1,
+        "tool": "envguard",
+        "version": tool_version,
+        "status": status,
+        "total_findings": len(findings),
+        "findings": [
+            {
+                "file": f.file_path.replace("\\", "/"),
+                "line": max(1, f.line_number),
+                "column": max(1, getattr(f, "column", None) or 1),
+                "end_line": max(1, f.line_number),
+                "end_column": max(1, getattr(f, "end_column", None) or ((getattr(f, "column", 1) or 1) + len(f.masked_value))),
+                "severity": f.severity.upper(),
+                "rule_id": f.rule_id,
+                "rule_name": f.rule_name,
+                "message": f"Secret detected ({f.rule_name})",
+                "fingerprint": f.fingerprint,
+                "masked_value": f.masked_value,
+                "blocked_by": getattr(f, "blocked_by", None),
+            }
+            for f in findings
+        ],
+    }
+    print_json(data, output_path=output_path)
+
+
 def render_check_json(
     blocking_findings: Optional[List[ScanFinding]] = None,
     low_findings: Optional[List[ScanFinding]] = None,
@@ -243,6 +284,72 @@ def render_check_json(
             "high": high,
             "medium": medium,
             "low": low,
+            "total": len(all_findings),
+        },
+        "findings": [
+            {
+                **{
+                    "rule_id": f.rule_id,
+                    "rule_name": f.rule_name,
+                    "severity": f.severity,
+                    "file": f.file_path.replace("\\", "/"),
+                    "line": f.line_number,
+                    "masked_value": f.masked_value,
+                    "fingerprint": f.fingerprint,
+                },
+                **({"entropy": f.entropy} if getattr(f, "entropy", None) is not None else {}),
+                **({"provider": f.provider} if getattr(f, "provider", None) else {}),
+                **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
+                **({"repository": f.repository} if getattr(f, "repository", None) else {}),
+                **({"blocked_by": f.blocked_by} if getattr(f, "blocked_by", None) else {}),
+            }
+            for f in all_findings
+        ],
+    }
+    print_json(data, output_path=output_path)
+
+
+def render_pre_push_json(
+    blocking_findings: Optional[List[ScanFinding]] = None,
+    low_findings: Optional[List[ScanFinding]] = None,
+    commits_scanned: int = 0,
+    files_scanned: int = 0,
+    error: Optional[str] = None,
+    output_path: Optional[Path] = None,
+) -> None:
+    """Output git pre-push result in structured JSON format."""
+    if error:
+        data = {
+            "schema_version": JSON_SCHEMA_VERSION,
+            "envguard_version": __version__,
+            "command": "pre-push",
+            "status": "error",
+            "error": error,
+        }
+        print_json(data, output_path=output_path)
+        return
+
+    blocking = blocking_findings or []
+    low = low_findings or []
+    all_findings = blocking + low
+    status = "failed" if blocking else "passed"
+
+    high = sum(1 for f in all_findings if f.severity == "HIGH")
+    medium = sum(1 for f in all_findings if f.severity == "MEDIUM")
+    low_count = sum(1 for f in all_findings if f.severity == "LOW")
+
+    data = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "envguard_version": __version__,
+        "command": "pre-push",
+        "status": status,
+        "commits_scanned": commits_scanned,
+        "files_scanned": files_scanned,
+        "push_blocked": bool(blocking),
+        "summary": {
+            "high": high,
+            "medium": medium,
+            "low": low_count,
             "total": len(all_findings),
         },
         "findings": [
@@ -657,6 +764,111 @@ def print_check_passed(low_findings_count: int = 0, no_staged: bool = False) -> 
         if low_findings_count > 0:
             msg += f"\n\n[bold blue]Notice:[/bold blue] {low_findings_count} low-severity warning(s) detected (non-blocking)."
         console.print(create_success_panel("CHECK PASSED", msg))
+    console.print()
+
+
+def print_blocked_push(
+    findings: List[ScanFinding],
+    remote_name: str = "",
+    ref_name: str = "",
+) -> None:
+    """Display the EnvGuard blocked push alert screen with guidance."""
+    high_count = sum(1 for f in findings if f.severity == "HIGH")
+    med_count = sum(1 for f in findings if f.severity == "MEDIUM")
+
+    target_info = ""
+    if remote_name and ref_name:
+        target_info = f" to '{remote_name}' ({ref_name})"
+    elif remote_name:
+        target_info = f" to '{remote_name}'"
+    elif ref_name:
+        target_info = f" ({ref_name})"
+
+    header_content = Group(
+        Text(""),
+        Align.center(Text("ENVGUARD BLOCKED PUSH", style="bold red")),
+        Text(""),
+        Align.center(Text(f"Blocking security findings were detected in outgoing commits{target_info}.", style="white")),
+        Text(""),
+        Align.center(Text.from_markup(f"[bold red]HIGH:   {high_count}[/bold red]     [bold yellow]MEDIUM: {med_count}[/bold yellow]")),
+        Text(""),
+    )
+    console.print()
+    console.print(Panel(header_content, border_style="red", box=box.ROUNDED, expand=False, padding=(0, 2)))
+    console.print()
+
+    # Table of blocking findings
+    table = Table(
+        title="[bold red]Blocking Outgoing Findings[/bold red]",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold red",
+        expand=False,
+    )
+    has_policy = any(bool(getattr(f, "blocked_by", None)) for f in findings)
+    table.add_column("Severity", justify="center", style="bold")
+    table.add_column("Rule ID", style="bold")
+    table.add_column("File")
+    table.add_column("Line", justify="right")
+    table.add_column("Masked Value", style="cyan")
+    table.add_column("Signals", style="magenta")
+    if has_policy:
+        table.add_column("Blocked By", style="bold yellow")
+
+    for f in findings:
+        row = [
+            format_severity(f.severity),
+            f.rule_id,
+            f.file_path,
+            str(f.line_number),
+            f.masked_value,
+            format_signals(f),
+        ]
+        if has_policy:
+            row.append(f.blocked_by.title() if getattr(f, "blocked_by", None) else "Policy")
+        table.add_row(*row)
+
+    console.print(table)
+    console.print()
+
+    steps = (
+        "[bold cyan]1.[/bold cyan] Rewrite or amend outgoing commit(s) to remove leaked secrets.\n"
+        "[bold cyan]2.[/bold cyan] Store credentials using secure environment configuration or secret manager.\n"
+        "[bold cyan]3.[/bold cyan] Rotate credentials immediately if already pushed or exposed.\n"
+        "[bold cyan]4.[/bold cyan] Retry push once sensitive data is removed from Git history."
+    )
+    console.print(
+        Panel(
+            steps,
+            title="[bold]Remediation Steps[/bold]",
+            border_style="yellow",
+            box=box.ROUNDED,
+            expand=False,
+            padding=(0, 2),
+        )
+    )
+    console.print()
+
+
+def print_push_passed(
+    commits_scanned: int = 0,
+    files_scanned: int = 0,
+    low_findings_count: int = 0,
+) -> None:
+    """Display clean success screen for git pre-push check."""
+    console.print()
+    if commits_scanned == 0:
+        console.print(
+            create_success_panel(
+                "PUSH CHECK PASSED",
+                "No new commits to scan for push.",
+            )
+        )
+    else:
+        msg = f"Clean: Scanned {commits_scanned} commit(s), {files_scanned} file(s). No blocking secrets detected."
+        if low_findings_count > 0:
+            msg += f"\n\n[bold blue]Notice:[/bold blue] {low_findings_count} low-severity warning(s) detected (non-blocking)."
+        console.print(create_success_panel("PUSH CHECK PASSED", msg))
     console.print()
 
 

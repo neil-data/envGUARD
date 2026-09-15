@@ -23,11 +23,11 @@ def runner():
 
 
 def test_v066_version_bump(runner):
-    """Verify EnvGuard version is 0.6.6."""
-    assert __version__ == "0.6.6"
+    """Verify EnvGuard version is >= 0.6.6."""
+    assert __version__ >= "0.6.6"
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.6.6" in result.output
+    assert __version__ in result.output
 
 
 def test_bug_a_locked_disabled_rules_not_unknown_key(tmp_path):

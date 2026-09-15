@@ -81,6 +81,8 @@ class ScanFinding:
     provider: Optional[str] = None
     repository: Optional[str] = None
     blocked_by: Optional[str] = None
+    column: Optional[int] = None
+    end_column: Optional[int] = None
 
     @property
     def confidence(self) -> str:
@@ -225,6 +227,21 @@ def deduplicate_and_merge_candidates(
         fp = primary_cand.fingerprint or compute_fingerprint(primary_cand.rule_id or "generic-secret", actual_file_path, primary_cand.value)
         masked = primary_cand.masked_value or mask_secret(primary_cand.value)
 
+        # Compute 1-based column coordinates if line_snippet and raw value are available
+        col = 1
+        end_col = 1
+        if line_snippet and primary_cand.value:
+            idx = line_snippet.find(primary_cand.value)
+            if idx != -1:
+                col = idx + 1
+                end_col = col + len(primary_cand.value)
+            else:
+                col = 1
+                end_col = max(1, len(line_snippet) + 1)
+        elif line_snippet:
+            col = 1
+            end_col = max(1, len(line_snippet) + 1)
+
         findings.append(
             ScanFinding(
                 rule_id=primary_cand.rule_id or "generic-secret",
@@ -239,6 +256,8 @@ def deduplicate_and_merge_candidates(
                 detection_signals=merged_signals,
                 entropy=entropy_val,
                 provider=provider_val,
+                column=col,
+                end_column=end_col,
             )
         )
 

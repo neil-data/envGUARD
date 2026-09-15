@@ -1,4 +1,4 @@
-"""Safe Git integration utilities for EnvGuard v0.6.6.
+"""Safe Git integration utilities for EnvGuard v0.7.0.
 
 Provides changed-file detection, staged-file inspection, base branch resolution,
 and repository root identification with strict EnvGuard exception handling.

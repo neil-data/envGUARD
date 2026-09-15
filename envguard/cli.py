@@ -54,7 +54,7 @@ from envguard.git_utils import (
 )
 from envguard.github_actions import write_github_annotations, write_github_job_summary
 from envguard.diagnostics import run_diagnostics
-from envguard.hook import install_pre_commit_hook, is_hook_installed
+from envguard.hook import install_git_hook, install_pre_commit_hook, is_hook_installed
 from envguard.initializer import init_project
 from envguard.multi_repo import parse_repo_targets, scan_multiple_repositories
 from envguard.patterns import load_default_patterns
@@ -62,12 +62,14 @@ from envguard.reporter import (
     console,
     err_console,
     print_blocked_commit,
+    print_blocked_push,
     print_check_passed,
     print_diagnostics,
     print_diff_report,
     print_hook_installed,
     print_init_result,
     print_multi_repo_summary,
+    print_push_passed,
     print_rule_explanation,
     print_rules_list,
     print_scan_findings,
@@ -77,8 +79,10 @@ from envguard.reporter import (
     render_diff_json,
     render_doctor_json,
     render_explain_json,
+    render_ide_json,
     render_init_json,
     render_multi_repo_json,
+    render_pre_push_json,
     render_rules_json,
     render_sarif,
     render_scan_json,
@@ -226,9 +230,9 @@ def ui_cmd() -> None:
     "--format",
     "-f",
     "output_format",
-    type=click.Choice(["text", "json", "sarif"], case_sensitive=False),
+    type=click.Choice(["text", "json", "sarif", "ide"], case_sensitive=False),
     default="text",
-    help="Output format: text (default), json, or sarif.",
+    help="Output format: text (default), json, sarif, or ide.",
 )
 @click.option(
     "--output",
@@ -400,6 +404,8 @@ def scan_cmd(
         fmt = output_format.lower()
         if fmt == "sarif":
             render_sarif(new_findings, output_path=output_file, patterns=patterns)
+        elif fmt == "ide":
+            render_ide_json(findings=new_findings, output_path=output_file)
         elif fmt == "json":
             render_scan_json(
                 findings=new_findings,
@@ -442,9 +448,9 @@ def scan_cmd(
     "-f",
     "--format",
     "output_format",
-    type=click.Choice(["text", "json", "sarif"], case_sensitive=False),
+    type=click.Choice(["text", "json", "sarif", "ide"], case_sensitive=False),
     default="text",
-    help="Output format: text (default), json, or sarif.",
+    help="Output format: text (default), json, sarif, or ide.",
 )
 @click.option(
     "-o",
@@ -594,6 +600,8 @@ def ci_cmd(
         fmt = output_format.lower()
         if fmt == "sarif":
             render_sarif(new_findings, output_path=output_file, patterns=patterns)
+        elif fmt == "ide":
+            render_ide_json(findings=new_findings, output_path=output_file)
         elif fmt == "json":
             render_scan_json(
                 findings=new_findings,
@@ -749,6 +757,199 @@ def check_cmd(ctx: click.Context, output_format: str, baseline_path: Optional[Pa
     except Exception as e:
         handle_cli_error(e, verbose=is_verbose)
         sys.exit(2)
+
+
+@main.command(name="pre-push")
+@click.argument("remote_name", required=False, default="origin")
+@click.argument("remote_url", required=False, default="")
+@click.option(
+    "-f",
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default="text",
+    help="Output format: text (default) or json.",
+)
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
+@click.pass_context
+def pre_push_cmd(
+    ctx: click.Context,
+    remote_name: str,
+    remote_url: str,
+    output_format: str,
+    verbose: bool,
+) -> None:
+    """Scan outgoing Git commits before push. Invoked automatically by Git pre-push hook."""
+    is_verbose = verbose or ctx.obj.get("VERBOSE", False)
+    cwd = Path.cwd()
+
+    if not is_git_repo(cwd):
+        err_msg = "Current directory is not a Git repository."
+        if output_format.lower() == "json":
+            render_pre_push_json(error=err_msg)
+        else:
+            handle_cli_error(GitError(err_msg), verbose=is_verbose)
+        sys.exit(2)
+
+    try:
+        from envguard.pre_push import (
+            determine_pushed_commits,
+            parse_pre_push_stdin,
+            scan_commit_files,
+            validate_ref_field,
+        )
+
+        validate_ref_field(remote_name, "remote name")
+        validate_ref_field(remote_url, "remote URL")
+
+        repo_root = get_repo_root(cwd) or cwd
+        config_file = find_config_file(cwd) or find_config_file(repo_root)
+        config = load_config(root_dir=cwd, config_path=config_file)
+
+        if is_verbose and config.warnings:
+            for w in config.warnings:
+                err_console.print(f"[yellow]Config warning:[/yellow] {w}")
+
+        stdin_content = ""
+        if not sys.stdin.isatty():
+            stdin_content = sys.stdin.read()
+
+        refs = parse_pre_push_stdin(stdin_content)
+        if not refs:
+            if output_format.lower() == "json":
+                render_pre_push_json(commits_scanned=0, files_scanned=0)
+            else:
+                print_push_passed(commits_scanned=0, files_scanned=0)
+            sys.exit(0)
+
+        active_refs = [r for r in refs if not r.is_delete]
+        if not active_refs:
+            if output_format.lower() == "json":
+                render_pre_push_json(commits_scanned=0, files_scanned=0)
+            else:
+                print_push_passed(commits_scanned=0, files_scanned=0)
+            sys.exit(0)
+
+        all_commits: List[str] = []
+        seen_commits: Set[str] = set()
+        for ref in active_refs:
+            commits = determine_pushed_commits(ref, remote_name=remote_name, repo_path=repo_root)
+            for c in commits:
+                if c not in seen_commits:
+                    seen_commits.add(c)
+                    all_commits.append(c)
+
+        if not all_commits:
+            if output_format.lower() == "json":
+                render_pre_push_json(commits_scanned=0, files_scanned=0)
+            else:
+                print_push_passed(commits_scanned=0, files_scanned=0)
+            sys.exit(0)
+
+        patterns = load_default_patterns(
+            disabled_rules=config.disabled_rules,
+            severity_overrides=config.severity_overrides,
+        )
+
+        findings, files_scanned = scan_commit_files(
+            commits=all_commits,
+            patterns=patterns,
+            repo_path=repo_root,
+            max_file_size_bytes=config.max_file_size_bytes,
+            exclude_patterns=config.exclude,
+            advanced_config=config.advanced_detection,
+        )
+
+        # Baseline resolution
+        candidate_baseline = repo_root / DEFAULT_BASELINE_FILENAME
+        baseline_fingerprints = load_baseline(candidate_baseline) if candidate_baseline.is_file() else set()
+        new_findings, suppressed_findings = filter_baseline_findings(findings, baseline_fingerprints)
+
+        blocking_findings: List[ScanFinding] = []
+        low_findings: List[ScanFinding] = []
+        for f in new_findings:
+            f.repository = repo_root.name
+            f.blocked_by = f.determine_blocking(
+                local_block_on=config.local_block_on or config.block_on,
+                org_block_on=config.org_config.block_on if config.org_config else None,
+            )
+            if f.blocked_by is not None:
+                blocking_findings.append(f)
+            else:
+                low_findings.append(f)
+
+        if output_format.lower() == "json":
+            render_pre_push_json(
+                blocking_findings=blocking_findings,
+                low_findings=low_findings,
+                commits_scanned=len(all_commits),
+                files_scanned=files_scanned,
+            )
+        else:
+            if suppressed_findings:
+                console.print(f"[dim]Suppressed {len(suppressed_findings)} finding(s) matching baseline.[/dim]\n")
+
+            if blocking_findings:
+                ref_label = active_refs[0].ref_name if len(active_refs) == 1 else f"{len(active_refs)} refs"
+                print_blocked_push(
+                    findings=blocking_findings,
+                    remote_name=remote_name,
+                    ref_name=ref_label,
+                )
+            else:
+                print_push_passed(
+                    commits_scanned=len(all_commits),
+                    files_scanned=files_scanned,
+                    low_findings_count=len(low_findings),
+                )
+
+        if blocking_findings:
+            sys.exit(1)
+        sys.exit(0)
+
+    except EnvGuardError as e:
+        if output_format.lower() == "json":
+            render_pre_push_json(error=str(e))
+        else:
+            handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+    except Exception as e:
+        if output_format.lower() == "json":
+            render_pre_push_json(error=str(e))
+        else:
+            handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+
+
+@main.command(name="watch")
+@click.argument(
+    "path",
+    required=False,
+    type=click.Path(exists=True, file_okay=True, dir_okay=True, path_type=Path),
+    default=None,
+)
+@click.option(
+    "--poll-interval",
+    type=float,
+    default=0.4,
+    help="Polling interval in seconds (default: 0.4s).",
+)
+@click.option(
+    "--debounce",
+    type=float,
+    default=0.3,
+    help="Debounce delay in seconds (default: 0.3s).",
+)
+@click.pass_context
+def watch_cmd(ctx: click.Context, path: Optional[Path], poll_interval: float, debounce: float) -> None:
+    """Monitor files for changes and automatically scan for secrets on save."""
+    from envguard.watch import run_watch
+    target = path or Path.cwd()
+    run_watch(
+        target_path=target,
+        poll_interval=poll_interval,
+        debounce_delay=debounce,
+    )
 
 
 @main.command(name="diff")
@@ -969,10 +1170,17 @@ def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
 
 
 @main.command(name="install-hook")
+@click.option(
+    "--type",
+    "hook_type",
+    type=click.Choice(["pre-commit", "pre-push"], case_sensitive=False),
+    default="pre-commit",
+    help="Hook type to install: pre-commit (default) or pre-push.",
+)
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
 @click.pass_context
-def install_hook_cmd(ctx: click.Context, verbose: bool) -> None:
-    """Install or update the EnvGuard Git pre-commit hook."""
+def install_hook_cmd(ctx: click.Context, hook_type: str, verbose: bool) -> None:
+    """Install or update the EnvGuard Git hook (pre-commit or pre-push)."""
     is_verbose = verbose or ctx.obj.get("VERBOSE", False)
     cwd = Path.cwd()
     if not is_git_repo(cwd):
@@ -981,13 +1189,13 @@ def install_hook_cmd(ctx: click.Context, verbose: bool) -> None:
 
     try:
         repo_root = get_repo_root(cwd) or cwd
-        success, message = install_pre_commit_hook(repo_root)
+        success, message = install_git_hook(hook_type=hook_type.lower(), repo_path=repo_root)
 
         if success:
             print_hook_installed(message)
             sys.exit(0)
         else:
-            handle_cli_error(HookError(f"Failed to install hook: {message}"), verbose=is_verbose)
+            handle_cli_error(HookError(f"Failed to install {hook_type} hook: {message}"), verbose=is_verbose)
             sys.exit(2)
     except EnvGuardError as e:
         handle_cli_error(e, verbose=is_verbose)

@@ -6,7 +6,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/version-0.6.6-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
+[![Release](https://img.shields.io/badge/version-0.7.0-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
 [![Tests](https://img.shields.io/badge/tests-169%20passed-brightgreen.svg)](#testing)
 
@@ -73,7 +73,7 @@ All secret detection, line-by-line streaming, SHA-256 baseline fingerprinting, a
 
 **Option 1 — From wheel**
 ```bash
-pip install dist/envguard-0.6.6-py3-none-any.whl
+pip install dist/envguard-0.7.0-py3-none-any.whl
 ```
 
 **Option 2 — Editable / developer mode**
@@ -147,8 +147,9 @@ envguard scan --changed --base origin/main
 envguard scan --repos ./backend,./frontend,./microservice-a
 envguard scan --repos ./backend --repos ./frontend --format json
 
-# Output formats: text, json, or sarif
+# Output formats: text, json, sarif, or ide (new in v0.7.0)
 envguard scan --format json
+envguard scan --format ide
 envguard scan --format sarif --output results.sarif
 envguard scan --verbose
 ```
@@ -262,13 +263,49 @@ envguard status
 ---
 
 ### 6. `envguard install-hook`
-Installs or safely appends the EnvGuard safety gate into `.git/hooks/pre-commit`.
+Installs or safely appends the EnvGuard safety gate into `.git/hooks/pre-commit` or `.git/hooks/pre-push`.
 ```bash
+# Install pre-commit hook (default)
 envguard install-hook
+envguard install-hook --type pre-commit
+
+# Install pre-push hook (new in v0.7.0)
+envguard install-hook --type pre-push
 ```
 - Clear boundary markers (`# BEGIN ENVGUARD HOOK ... # END ENVGUARD HOOK`)
 - Preserves existing hooks without overwriting user scripts
-- Runs automatically before every commit
+- Runs automatically before every commit or outgoing push
+
+---
+
+### 6b. `envguard pre-push` (new in v0.7.0)
+Scans outgoing commits before pushing to a remote repository. Invoked automatically by Git's `pre-push` hook or manually for pre-flight testing.
+```bash
+# Manual check of outgoing commits
+envguard pre-push origin
+
+# Output machine-readable JSON summary
+envguard pre-push origin --format json
+```
+- Fully implements Git's pre-push protocol (`<local-ref> <local-sha> <remote-ref> <remote-sha>`)
+- Resolves commit ranges (`rev-list`) and retrieves file bytes directly from Git objects (`git show <commit>:<path>`)
+- Built-in defenses against ref/flag injection attacks
+
+---
+
+### 6c. `envguard watch` (new in v0.7.0)
+Runs a zero-dependency filesystem watcher that continuously monitors files and triggers debounced scans on save.
+```bash
+# Watch current working directory
+envguard watch
+
+# Watch specific source folder with custom debounce
+envguard watch ./src --debounce 0.5
+```
+- Native `os.scandir` monitoring with zero third-party dependencies
+- Automatic event debouncing to prevent scan storms
+- Prunes ignored directories (`.git`, `node_modules`, `venv`, etc.) and respects `.gitignore` / `.envguardignore`
+- Clean `Ctrl+C` graceful shutdown
 
 ---
 
@@ -602,7 +639,8 @@ tests/test_v042_fixes.py::test_v042_version PASSED
 | v0.5.4 | Security & Consistency Patch (Ref Injection Prevention, block_on Validation, Status advanced_detection, Specificity Fix, Unknown Keys Warning) | Complete |
 | v0.5.5 | Micro Patch Update (Rich Console Stderr Fix, Status Command Config Warnings Surface) | Complete |
 | v0.6.0 | Team & Multi-Repo Workflows (Organization Security Floor, Multi-Repo Scanning, Blocker Attribution) | Complete |
-| **v0.6.6** | **Patch Update (Organization Policy locked_disabled_rules Schema Fix, Multi-Repo Scan TypeError Fix)** | **Current Release ✅** |
+| v0.6.6 | Patch Update (Organization Policy locked_disabled_rules Schema Fix, Multi-Repo Scan TypeError Fix) | Complete |
+| **v0.7.0** | **Developer Workflow Integration (Git Pre-Push Hook, Filesystem Watch Mode, IDE Diagnostic JSON)** | **Current Release ✅** |
 | v1.0.0 | Stable production release | Target |
 
 
