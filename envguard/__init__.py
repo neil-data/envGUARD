@@ -1,4 +1,3 @@
-"""EnvGuard - A Developer-Side Safety Gate for Secrets and Environment Drift."""
-
-__version__ = "0.7.5"
+"""EnvGuard - Developer-first secret scanner and environment consistency tool."""
+__version__ = "0.8.0"
 __author__ = "EnvGuard Team"

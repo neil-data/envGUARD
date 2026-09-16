@@ -85,6 +85,7 @@ from envguard.reporter import (
     render_diff_json,
     render_doctor_json,
     render_explain_json,
+    render_fix_json,
     render_ide_json,
     render_init_json,
     render_multi_repo_json,
@@ -93,6 +94,7 @@ from envguard.reporter import (
     render_sarif,
     render_scan_json,
     render_status_json,
+    print_remediation_plan,
     write_output,
 )
 from envguard.scanner import scan_directory, scan_files, scan_staged
@@ -1544,6 +1546,124 @@ def rules_list_cmd(ctx: click.Context, output_format: Optional[str], verbose: bo
             render_rules_json(patterns)
         else:
             print_rules_list(patterns)
+        sys.exit(0)
+    except EnvGuardError as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+    except Exception as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+
+
+@main.command(name="fix")
+@click.argument(
+    "path",
+    required=False,
+    type=click.Path(exists=True, file_okay=True, dir_okay=True, path_type=Path),
+    default=None,
+)
+@click.option(
+    "--apply",
+    "apply_changes",
+    is_flag=True,
+    default=False,
+    help="Explicitly apply the remediation changes (default is dry-run preview).",
+)
+@click.option(
+    "--allow-dirty",
+    is_flag=True,
+    default=False,
+    help="Allow applying remediation even if Git working tree has uncommitted changes.",
+)
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default=None,
+    help="Output format: 'text' (default) or 'json'.",
+)
+@click.option(
+    "-o",
+    "--output",
+    "output_file",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Path to write the output report file.",
+)
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
+@click.pass_context
+def fix_cmd(
+    ctx: click.Context,
+    path: Optional[Path],
+    apply_changes: bool,
+    allow_dirty: bool,
+    output_format: Optional[str],
+    output_file: Optional[Path],
+    verbose: bool,
+) -> None:
+    """Safely remediate hardcoded secrets in Python and .env files."""
+    from envguard.remediation import (
+        apply_remediation_plan,
+        check_git_cleanliness,
+        create_remediation_plan,
+    )
+
+    is_verbose = verbose or ctx.obj.get("VERBOSE", False)
+    target_format = (output_format or ctx.obj.get("FORMAT", "text")).lower()
+    raw_path = path or Path(".")
+    target = raw_path.resolve()
+    target_dir = target if target.is_dir() else target.parent
+
+    try:
+        # Step 1: Git cleanliness check if applying changes
+        if apply_changes and not allow_dirty:
+            is_clean, clean_msg = check_git_cleanliness(target_dir)
+            if not is_clean:
+                raise GitError(clean_msg)
+
+        # Step 2: Load config and patterns
+        config = load_config(root_dir=target_dir)
+        patterns = load_default_patterns(
+            disabled_rules=config.disabled_rules,
+            severity_overrides=config.severity_overrides,
+        )
+
+        # Step 3: Scan target to locate findings
+        stats = {"files_scanned": 0, "files_skipped": 0}
+        if target.is_file():
+            from envguard.scanner import scan_file_streaming
+            findings, _ = scan_file_streaming(
+                file_path=target,
+                rel_path_str=target.name,
+                patterns=patterns,
+                max_file_size_bytes=config.max_file_size_bytes,
+                advanced_config=config.advanced_detection,
+            )
+        else:
+            findings = scan_directory(
+                directory=target,
+                patterns=patterns,
+                respect_gitignore=True,
+                exclude_patterns=config.exclude,
+                max_file_size_bytes=config.max_file_size_bytes,
+                stats=stats,
+                advanced_config=config.advanced_detection,
+            )
+
+        # Step 4: Build remediation plan
+        plan = create_remediation_plan(target_root=target_dir, findings=findings)
+
+        # Step 5: If --apply, perform atomic writes
+        if apply_changes:
+            apply_remediation_plan(plan)
+
+        # Step 6: Output report
+        if target_format == "json":
+            render_fix_json(plan, applied=apply_changes, output_path=output_file)
+        else:
+            print_remediation_plan(plan, is_dry_run=not apply_changes)
+
         sys.exit(0)
     except EnvGuardError as e:
         handle_cli_error(e, verbose=is_verbose)

@@ -1476,3 +1476,205 @@ def render_multi_repo_json(result: MultiRepoScanResult, output_path: Optional[Pa
         ],
     }
     print_json(data, output_path=output_path)
+
+
+def print_remediation_plan(plan: Any, is_dry_run: bool = True) -> None:
+    """Display the remediation plan with diff previews, status, and rotation reminder."""
+    console.print()
+    title_prefix = "Remediation Preview (Dry Run)" if is_dry_run else "Remediation Applied"
+    border_color = "cyan" if is_dry_run else "green"
+
+    # 1. Header Banner
+    mode_text = "[bold yellow]DRY-RUN MODE — NO FILES WERE MODIFIED[/bold yellow]\n[dim]Run with '--apply' to apply these changes.[/dim]" if is_dry_run else "[bold green]CHANGES APPLIED SUCCESSFULLY[/bold green]"
+    console.print(
+        Panel(
+            Align.center(mode_text),
+            title=f"[bold]{title_prefix}[/bold]",
+            border_style=border_color,
+            box=box.ROUNDED,
+            expand=False,
+            padding=(0, 2),
+        )
+    )
+    console.print()
+
+    # 2. Skipped Secrets Manager References
+    if getattr(plan, "skipped_secrets_manager", None):
+        sm_table = Table(
+            title="[bold cyan]Detected Secrets Manager References (No Action Needed)[/bold cyan]",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold cyan",
+            expand=False,
+        )
+        sm_table.add_column("File", style="bold")
+        sm_table.add_column("Line", justify="right")
+        sm_table.add_column("Secrets Manager", style="green")
+        sm_table.add_column("Snippet")
+
+        for f, mgr_name in plan.skipped_secrets_manager:
+            sm_table.add_row(
+                f.file_path,
+                str(f.line_number),
+                mgr_name,
+                f"[dim]{f.line_snippet.strip()}[/dim]",
+            )
+
+        console.print(sm_table)
+        console.print()
+
+    # 3. Safe Actions Table
+    safe_actions = getattr(plan, "safe_actions", [])
+    if safe_actions:
+        table = Table(
+            title="[bold green]Automated Transformations[/bold green]" if not is_dry_run else "[bold cyan]Proposed Transformations[/bold cyan]",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold cyan",
+            expand=False,
+        )
+        table.add_column("File", style="bold")
+        table.add_column("Line", justify="right")
+        table.add_column("Rule", style="bold yellow")
+        table.add_column("Env Var Name", style="bold green")
+        table.add_column("Proposed Replacement")
+
+        for a in safe_actions:
+            table.add_row(
+                str(a.file_path.name),
+                str(a.line_number),
+                a.rule_id,
+                a.env_var_name,
+                f"[dim]{a.replacement_line.strip()}[/dim]",
+            )
+
+        console.print(table)
+        console.print()
+
+        # Diffs
+        console.print("[bold]Code Diffs:[/bold]")
+        for a in safe_actions:
+            diff_text = a.diff or f"- {a.original_line}\n+ {a.replacement_line}"
+            console.print(
+                create_panel(
+                    diff_text,
+                    title=f"[bold]{a.file_path.name}:{a.line_number}[/bold]",
+                    border_style="cyan" if is_dry_run else "green",
+                    padding=(0, 1),
+                )
+            )
+        console.print()
+
+    # 4. Manual Remediation Required Table
+    manual_actions = getattr(plan, "manual_actions", [])
+    if manual_actions:
+        m_table = Table(
+            title="[bold yellow]Manual Remediation Required (Left Untouched)[/bold yellow]",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold yellow",
+            expand=False,
+        )
+        m_table.add_column("File", style="bold")
+        m_table.add_column("Line", justify="right")
+        m_table.add_column("Rule", style="bold")
+        m_table.add_column("Reason")
+
+        for ma in manual_actions:
+            m_table.add_row(
+                str(ma.file_path.name),
+                str(ma.line_number),
+                ma.rule_id,
+                f"[yellow]{ma.skip_reason}[/yellow]",
+            )
+
+        console.print(m_table)
+        console.print()
+
+    # 5. Environment Files Summary
+    if plan.env_additions or plan.example_additions:
+        env_table = Table(
+            title="[bold]Environment Configuration Updates[/bold]",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold",
+            expand=False,
+        )
+        env_table.add_column("File", style="bold")
+        env_table.add_column("Action", style="green")
+        env_table.add_column("Variables Added", style="cyan")
+
+        if plan.env_additions:
+            env_table.add_row(".env", "Updated with extracted secret values", ", ".join(plan.env_additions.keys()))
+        if plan.example_additions:
+            env_table.add_row(".env.example", "Updated with safe placeholders", ", ".join(plan.example_additions.keys()))
+
+        console.print(env_table)
+        console.print()
+
+    # 6. Provider Rotation Warning (CRITICAL)
+    rotation_msg = (
+        "[bold red]CRITICAL SECURITY REMINDER:[/bold red]\n"
+        "Remediating hardcoded code references does [bold]NOT[/bold] revoke credentials that have been exposed!\n"
+        "If any secret was previously committed, pushed, or shared, [bold]revoke and rotate it immediately at your provider[/bold]\n"
+        "(e.g. AWS Console, GitHub Settings, Stripe Dashboard, etc.)."
+    )
+    console.print(
+        Panel(
+            rotation_msg,
+            title="[bold red]Credential Rotation Required[/bold red]",
+            border_style="red",
+            box=box.ROUNDED,
+            expand=False,
+            padding=(0, 2),
+        )
+    )
+    console.print()
+
+
+def render_fix_json(plan: Any, applied: bool = False, output_path: Optional[Path] = None) -> None:
+    """Render machine-readable JSON for remediation plan."""
+    data = {
+        "version": __version__,
+        "command": "fix",
+        "applied": applied,
+        "summary": {
+            "safe_count": len(getattr(plan, "safe_actions", [])),
+            "manual_count": len(getattr(plan, "manual_actions", [])),
+            "skipped_secrets_manager_count": len(getattr(plan, "skipped_secrets_manager", [])),
+            "affected_files_count": len(getattr(plan, "affected_files", set())),
+        },
+        "safe_actions": [
+            {
+                "file": str(a.file_path).replace("\\", "/"),
+                "line": a.line_number,
+                "rule_id": a.rule_id,
+                "env_var_name": a.env_var_name,
+                "masked_secret": a.masked_secret,
+                "replacement_line": a.replacement_line,
+            }
+            for a in getattr(plan, "safe_actions", [])
+        ],
+        "manual_actions": [
+            {
+                "file": str(ma.file_path).replace("\\", "/"),
+                "line": ma.line_number,
+                "rule_id": ma.rule_id,
+                "masked_secret": ma.masked_secret,
+                "reason": ma.skip_reason,
+            }
+            for ma in getattr(plan, "manual_actions", [])
+        ],
+        "secrets_manager_references": [
+            {
+                "file": f.file_path.replace("\\", "/"),
+                "line": f.line_number,
+                "manager": mgr_name,
+            }
+            for f, mgr_name in getattr(plan, "skipped_secrets_manager", [])
+        ],
+        "env_keys_added": list(getattr(plan, "env_additions", {}).keys()),
+        "example_keys_added": list(getattr(plan, "example_additions", {}).keys()),
+    }
+    print_json(data, output_path=output_path)
+
