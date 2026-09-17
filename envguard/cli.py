@@ -1632,6 +1632,22 @@ def fix_cmd(
         # Step 3: Scan target to locate findings
         stats = {"files_scanned": 0, "files_skipped": 0}
         if target.is_file():
+            fname = target.name.lower()
+            if fname == ".env" or fname.startswith(".env.") or fname.endswith(".env"):
+                if target_format == "json":
+                    render_fix_json(create_remediation_plan(target_root=target_dir, findings=[]), applied=False, output_path=output_file)
+                else:
+                    console.print(
+                        Panel(
+                            f"[bold yellow]Notice:[/bold yellow] '{target.name}' is an environment configuration file and cannot be transformed as source code.\n"
+                            f"EnvGuard fix remediates application source code and moves extracted secrets into .env.",
+                            title="[bold]Remediation Notice[/bold]",
+                            border_style="yellow",
+                            box=box.ROUNDED,
+                        )
+                    )
+                sys.exit(0)
+
             from envguard.scanner import scan_file_streaming
             findings, _ = scan_file_streaming(
                 file_path=target,
@@ -1641,11 +1657,12 @@ def fix_cmd(
                 advanced_config=config.advanced_detection,
             )
         else:
+            fix_excludes = list(config.exclude) + [".env", ".env.*", ".env.example", "*.env"]
             findings = scan_directory(
                 directory=target,
                 patterns=patterns,
                 respect_gitignore=True,
-                exclude_patterns=config.exclude,
+                exclude_patterns=fix_excludes,
                 max_file_size_bytes=config.max_file_size_bytes,
                 stats=stats,
                 advanced_config=config.advanced_detection,

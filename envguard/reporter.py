@@ -1608,6 +1608,8 @@ def print_remediation_plan(plan: Any, is_dry_run: bool = True) -> None:
             env_table.add_row(".env", "Updated with extracted secret values", ", ".join(plan.env_additions.keys()))
         if plan.example_additions:
             env_table.add_row(".env.example", "Updated with safe placeholders", ", ".join(plan.example_additions.keys()))
+        if getattr(plan, "needs_gitignore_env", False):
+            env_table.add_row(".gitignore", "[bold yellow]Auto-exclude .env[/bold yellow]", "Security: .env excluded from Git tracking")
 
         console.print(env_table)
         console.print()
@@ -1675,6 +1677,7 @@ def render_fix_json(plan: Any, applied: bool = False, output_path: Optional[Path
         ],
         "env_keys_added": list(getattr(plan, "env_additions", {}).keys()),
         "example_keys_added": list(getattr(plan, "example_additions", {}).keys()),
+        "gitignore_protection_needed": getattr(plan, "needs_gitignore_env", False),
     }
     print_json(data, output_path=output_path)
 

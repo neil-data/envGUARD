@@ -6,9 +6,9 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/version-0.8.0-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
+[![Release](https://img.shields.io/badge/version-0.8.7-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
-[![Tests](https://img.shields.io/badge/tests-208%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-213%20passed-brightgreen.svg)](#testing)
 
 
 <p>
@@ -34,7 +34,7 @@
 
 Secret leaks into Git are one of the most common, preventable security incidents in software development — a misconfigured `.gitignore`, a key pasted into a tracked file, or a commit made before anyone double-checks what's staged. Existing scanners such as Gitleaks and TruffleHog are excellent, but they're built for CI pipelines and security teams, not the moment right before a developer runs `git commit` or `git push`.
 
-EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable. With v0.5.0, that same protection extended into CI/CD pipelines and pull requests. With v0.6.0, team-wide organization policies and multi-repository scanning brought enterprise-grade workflows while maintaining 100% local-first privacy. With v0.7.0, developer workflow integrations — including a native Git pre-push hook, a zero-dependency filesystem watcher, and editor-compatible diagnostic JSON — catch secrets even earlier in active developer workflows. With v0.7.5, a full Rich terminal overhaul introduces centralized UI theming, interactive scan progress bars, and a real-time live watch dashboard. With v0.8.0, safe, write-capable automated remediation (`envguard fix`) safely extracts hardcoded secrets to `.env` and `os.environ.get(...)` while recognizing cloud secrets managers 100% offline.
+EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable. With v0.5.0, that same protection extended into CI/CD pipelines and pull requests. With v0.6.0, team-wide organization policies and multi-repository scanning brought enterprise-grade workflows while maintaining 100% local-first privacy. With v0.7.0, developer workflow integrations — including a native Git pre-push hook, a zero-dependency filesystem watcher, and editor-compatible diagnostic JSON — catch secrets even earlier in active developer workflows. With v0.7.5, a full Rich terminal overhaul introduces centralized UI theming, interactive scan progress bars, and a real-time live watch dashboard. With v0.8.0, safe, write-capable automated remediation (`envguard fix`) safely extracts hardcoded secrets to `.env` and `os.environ.get(...)` while recognizing cloud secrets managers 100% offline. With v0.8.7, remediation safety enhancements deliver UTF-8 BOM compatibility, automated `.gitignore` exclusion of `.env`, and safe scan target boundaries.
 
 ---
 
@@ -58,7 +58,8 @@ All secret detection, line-by-line streaming, SHA-256 baseline fingerprinting, a
 
 | Feature | Description |
 |---|---|
-| **Automated Remediation** (`v0.8.0`) | Safe, AST-verified remediation (`envguard fix`) for Python and `.env` files. Rewrites assignments to `os.environ.get()`, safely adds missing imports, populates `.env` while preserving placeholders in `.env.example`, requires clean git working trees, and defaults strictly to dry-run previews. |
+| **Remediation Safety Fixes** (`v0.8.7`) | Robust UTF-8 BOM parsing and preservation for PowerShell/Windows files, automated Git exclusion of `.env` via `.gitignore` with rollback safety, and complete exclusion of `.env` / `.env.example` from `fix` scan targets to eliminate no-op diffs and prevent file corruption. |
+| **Automated Remediation** (`v0.8.0`) | Safe, AST-verified remediation (`envguard fix`) for Python source files. Rewrites assignments to `os.environ.get()`, safely adds missing imports, populates `.env` while preserving placeholders in `.env.example`, requires clean git working trees, and defaults strictly to dry-run previews. |
 | **Secrets Manager Recognition** (`v0.8.0`) | 100% offline pattern recognition for AWS Secrets Manager, HashiCorp Vault, Azure Key Vault, Google Cloud Secret Manager, and environment lookups — skipping valid secrets manager references without network or cloud calls. |
 | **Rich Terminal UI Overhaul** (`v0.7.5`) | Centralized theme system (`envguard/ui/theme.py`), interactive scan progress bars (`rich.progress.Progress`), real-time live monitoring dashboard in `envguard watch` (`rich.live.Live`), syntax-highlighted code snippets with strict pre-highlight secret masking, and outermost clean Rich tracebacks. |
 | **Developer Workflow Integration** (`v0.7.0`) | Git pre-push hook (`envguard pre-push`, `envguard install-hook --type pre-push`) with full protocol conformance and ref-injection defenses; zero-dependency filesystem watch mode (`envguard watch`) with debounced scans; and editor-compatible IDE JSON format (`envguard scan --format ide`) with 1-based ranges. |
@@ -80,7 +81,7 @@ All secret detection, line-by-line streaming, SHA-256 baseline fingerprinting, a
 
 **Option 1 — From wheel**
 ```bash
-pip install dist/envguard-0.8.0-py3-none-any.whl
+pip install dist/envguard-0.8.7-py3-none-any.whl
 ```
 
 **Option 2 — Editable / developer mode**
@@ -93,7 +94,7 @@ pip install -e .
 Verify the install:
 ```bash
 envguard --version
-# EnvGuard version 0.8.0
+# EnvGuard version 0.8.7
 ```
 
 Works identically in cmd, PowerShell, and Unix shells.
@@ -786,7 +787,8 @@ tests/test_v070_watch.py::test_watcher_detects_modification_with_debounce PASSED
 | v0.6.6 | Patch Update (Organization Policy locked_disabled_rules Schema Fix, Multi-Repo Scan TypeError Fix) | Complete |
 | v0.7.0 | Developer Workflow Integration (Git Pre-Push Hook, Filesystem Watch Mode, IDE Diagnostic JSON) | Complete |
 | v0.7.5 | Full Rich Terminal UI Overhaul (Theme System, Progress Bars, Watch Live Dashboard, Syntax Highlighting) | Complete |
-| **v0.8.0** | **Automated Remediation & Secrets Manager Integration (`envguard fix`, AST Verification, Offline Secrets Manager)** | **Current Release ✅** |
+| v0.8.0 | Automated Remediation & Secrets Manager Integration (`envguard fix`, AST Verification, Offline Secrets Manager) | Complete |
+| **v0.8.7** | **Remediation Safety Fixes (UTF-8 BOM Support, Git .env Auto-Exclusion, Re-scan Exclusion)** | **Current Release ✅** |
 | v1.0.0 | Stable production release | Target |
 
 

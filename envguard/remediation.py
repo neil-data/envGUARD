@@ -47,6 +47,7 @@ class RemediationPlan:
     env_additions: Dict[str, str] = field(default_factory=dict)         # KEY -> raw_secret
     example_additions: Dict[str, str] = field(default_factory=dict)     # KEY -> placeholder
     skipped_secrets_manager: List[Tuple[ScanFinding, str]] = field(default_factory=list)
+    needs_gitignore_env: bool = False
 
     @property
     def safe_actions(self) -> List[RemediationAction]:
@@ -72,6 +73,55 @@ def normalize_env_var_name(var_name: str, rule_id: str) -> str:
     return rule_clean or "SECRET_KEY"
 
 
+def is_env_ignored_by_git(target_root: Path) -> bool:
+    """Check if .env is ignored by git in target_root or via .gitignore."""
+    if is_git_repository(target_root):
+        proc = run_git(["check-ignore", "-q", ".env"], cwd=target_root)
+        if proc.returncode == 0:
+            return True
+
+    # Check local .gitignore file
+    gitignore_path = target_root / ".gitignore"
+    if gitignore_path.is_file():
+        try:
+            content = gitignore_path.read_text(encoding="utf-8-sig", errors="replace")
+            for line in content.splitlines():
+                stripped = line.strip()
+                if stripped in (".env", "/.env", ".env*", "*.env"):
+                    return True
+        except Exception:
+            pass
+
+    return False
+
+
+def ensure_env_in_gitignore(target_root: Path, backups: Optional[Dict[Path, Optional[bytes]]] = None) -> bool:
+    """Ensure .gitignore exists and excludes .env. Returns True if modified/created."""
+    if is_env_ignored_by_git(target_root):
+        return False
+
+    gitignore_path = target_root / ".gitignore"
+    if backups is not None and gitignore_path not in backups:
+        backups[gitignore_path] = gitignore_path.read_bytes() if gitignore_path.is_file() else None
+
+    lines_to_add = [
+        "",
+        "# Environment files (added by envguard fix)",
+        ".env",
+        ".env.local",
+        ".env.*.local",
+    ]
+    if gitignore_path.is_file():
+        existing = gitignore_path.read_text(encoding="utf-8-sig", errors="replace")
+        prefix = "" if not existing or existing.endswith("\n") else "\n"
+        new_content = existing + prefix + "\n".join(lines_to_add).lstrip("\n") + "\n"
+    else:
+        new_content = "\n".join(lines_to_add).lstrip("\n") + "\n"
+
+    gitignore_path.write_text(new_content, encoding="utf-8")
+    return True
+
+
 def inspect_python_assignment(file_path: Path, line_number: int, raw_secret: str) -> Tuple[bool, Optional[str], Optional[str], bool]:
     """Parse Python file using AST to verify if target is a simple, safe assignment.
 
@@ -79,7 +129,7 @@ def inspect_python_assignment(file_path: Path, line_number: int, raw_secret: str
         (is_safe, var_name, skip_reason, needs_import_os)
     """
     try:
-        content = file_path.read_text(encoding="utf-8", errors="replace")
+        content = file_path.read_text(encoding="utf-8-sig", errors="replace")
         tree = ast.parse(content, filename=str(file_path))
     except Exception as e:
         return False, None, f"Failed to parse Python syntax: {e}", False
@@ -165,19 +215,22 @@ def create_remediation_plan(
         if not file_path.is_file():
             continue
 
+        file_name = file_path.name.lower()
+        # .env and .env.example are environment stores, never remediated as source code
+        if file_name == ".env" or file_name.startswith(".env.") or file_name.endswith(".env"):
+            continue
+
         # Check for Secrets Manager pattern
         sec_mgr = detect_secrets_manager_reference(f.line_snippet)
         if sec_mgr:
             plan.skipped_secrets_manager.append((f, sec_mgr[1]))
             continue
 
-        # Check file extension: python or .env
+        # Check file extension: python only in v0.8.x
         suffix = file_path.suffix.lower()
-        file_name = file_path.name.lower()
         is_python = (suffix == ".py")
-        is_env = (file_name == ".env" or file_name.startswith(".env."))
 
-        if not (is_python or is_env):
+        if not is_python:
             plan.actions.append(
                 RemediationAction(
                     file_path=file_path,
@@ -190,88 +243,69 @@ def create_remediation_plan(
                     raw_secret=f.raw_value,
                     masked_secret=f.masked_value,
                     is_safe=False,
-                    skip_reason=f"File type '{suffix or file_name}' is not supported for automatic remediation in v0.8.0.",
+                    skip_reason=f"File type '{suffix or file_name}' is not supported for automatic remediation in v0.8.x.",
                 )
             )
             continue
 
-        if is_python:
-            is_safe, var_name, skip_reason, needs_import_os = inspect_python_assignment(
-                file_path=file_path,
-                line_number=f.line_number,
-                raw_secret=f.raw_value,
-            )
+        is_safe, var_name, skip_reason, needs_import_os = inspect_python_assignment(
+            file_path=file_path,
+            line_number=f.line_number,
+            raw_secret=f.raw_value,
+        )
 
-            if not is_safe or not var_name:
-                plan.actions.append(
-                    RemediationAction(
-                        file_path=file_path,
-                        line_number=f.line_number,
-                        rule_id=f.rule_id,
-                        rule_name=f.rule_name,
-                        original_line=f.line_snippet,
-                        replacement_line="",
-                        env_var_name="",
-                        raw_secret=f.raw_value,
-                        masked_secret=f.masked_value,
-                        is_safe=False,
-                        skip_reason=skip_reason or "Unsafe assignment construct",
-                    )
+        if not is_safe or not var_name:
+            plan.actions.append(
+                RemediationAction(
+                    file_path=file_path,
+                    line_number=f.line_number,
+                    rule_id=f.rule_id,
+                    rule_name=f.rule_name,
+                    original_line=f.line_snippet,
+                    replacement_line="",
+                    env_var_name="",
+                    raw_secret=f.raw_value,
+                    masked_secret=f.masked_value,
+                    is_safe=False,
+                    skip_reason=skip_reason or "Unsafe assignment construct",
                 )
-                continue
-
-            env_key = normalize_env_var_name(var_name, f.rule_id)
-            orig_line = f.line_snippet.rstrip("\r\n")
-
-            # Determine indentation
-            indent_match = re.match(r"^(\s*)", orig_line)
-            indent = indent_match.group(1) if indent_match else ""
-
-            # Preserve variable name and assignment syntax
-            replacement_line = f'{indent}{var_name} = os.environ.get("{env_key}")'
-
-            action = RemediationAction(
-                file_path=file_path,
-                line_number=f.line_number,
-                rule_id=f.rule_id,
-                rule_name=f.rule_name,
-                original_line=orig_line,
-                replacement_line=replacement_line,
-                env_var_name=env_key,
-                raw_secret=f.raw_value,
-                masked_secret=f.masked_value,
-                is_safe=True,
-                needs_import_os=needs_import_os,
             )
-            action.diff = generate_diff(orig_line + "\n", replacement_line + "\n", file_path.name)
-            plan.actions.append(action)
+            continue
 
-            # Record .env and .env.example additions
-            plan.env_additions[env_key] = f.raw_value
-            # STRICT REQUIREMENT: Never write raw_value to .env.example
-            plan.example_additions[env_key] = "your-secret-key-here"
+        env_key = normalize_env_var_name(var_name, f.rule_id)
+        # Strip any leading BOM from line snippet to avoid corrupting indentation/syntax
+        orig_line = f.line_snippet.lstrip("\ufeff").rstrip("\r\n")
 
-        elif is_env:
-            # For .env files, the secret is already in .env. We ensure .env.example has a placeholder.
-            # Parse key from line
-            match = re.match(r"^\s*(?:export\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*=", f.line_snippet)
-            env_key = match.group(1) if match else normalize_env_var_name(f.rule_id, f.rule_id)
+        # Determine indentation
+        indent_match = re.match(r"^(\s*)", orig_line)
+        indent = indent_match.group(1) if indent_match else ""
 
-            action = RemediationAction(
-                file_path=file_path,
-                line_number=f.line_number,
-                rule_id=f.rule_id,
-                rule_name=f.rule_name,
-                original_line=f.line_snippet.rstrip("\r\n"),
-                replacement_line=f.line_snippet.rstrip("\r\n"),  # .env already has value, don't corrupt
-                env_var_name=env_key,
-                raw_secret=f.raw_value,
-                masked_secret=f.masked_value,
-                is_safe=True,
-                skip_reason="Value retained in .env; placeholder verified in .env.example",
-            )
-            plan.actions.append(action)
-            plan.example_additions[env_key] = "your-secret-key-here"
+        # Preserve variable name and assignment syntax
+        replacement_line = f'{indent}{var_name} = os.environ.get("{env_key}")'
+
+        action = RemediationAction(
+            file_path=file_path,
+            line_number=f.line_number,
+            rule_id=f.rule_id,
+            rule_name=f.rule_name,
+            original_line=orig_line,
+            replacement_line=replacement_line,
+            env_var_name=env_key,
+            raw_secret=f.raw_value,
+            masked_secret=f.masked_value,
+            is_safe=True,
+            needs_import_os=needs_import_os,
+        )
+        action.diff = generate_diff(orig_line + "\n", replacement_line + "\n", file_path.name)
+        plan.actions.append(action)
+
+        # Record .env and .env.example additions
+        plan.env_additions[env_key] = f.raw_value
+        # STRICT REQUIREMENT: Never write raw_value to .env.example
+        plan.example_additions[env_key] = "your-secret-key-here"
+
+    if plan.env_additions and not is_env_ignored_by_git(target_root):
+        plan.needs_gitignore_env = True
 
     return plan
 
@@ -301,23 +335,25 @@ def apply_remediation_plan(plan: RemediationPlan) -> None:
     if not plan.safe_actions and not plan.env_additions and not plan.example_additions:
         return
 
-    backups: Dict[Path, str] = {}
+    backups: Dict[Path, Optional[bytes]] = {}
     staged_files: List[Path] = []
 
     try:
-        # Step 1: Backup all targets in memory
+        # Step 1: Backup all targets in memory (raw bytes for exact bit-for-bit fidelity)
         files_to_touch = plan.affected_files.copy()
         env_file = plan.target_root / ".env"
         example_file = plan.target_root / ".env.example"
+        gitignore_file = plan.target_root / ".gitignore"
 
         if plan.env_additions:
             files_to_touch.add(env_file)
+            if not is_env_ignored_by_git(plan.target_root):
+                files_to_touch.add(gitignore_file)
         if plan.example_additions:
             files_to_touch.add(example_file)
 
         for p in files_to_touch:
-            if p.is_file():
-                backups[p] = p.read_text(encoding="utf-8", errors="replace")
+            backups[p] = p.read_bytes() if p.is_file() else None
 
         # Step 2: Prepare new content for source files
         actions_by_file: Dict[Path, List[RemediationAction]] = {}
@@ -326,7 +362,11 @@ def apply_remediation_plan(plan: RemediationPlan) -> None:
 
         for file_path, actions in actions_by_file.items():
             if file_path.suffix.lower() == ".py":
-                orig_content = backups.get(file_path, file_path.read_text(encoding="utf-8", errors="replace"))
+                raw_bytes = backups.get(file_path)
+                if raw_bytes is None:
+                    raw_bytes = file_path.read_bytes() if file_path.is_file() else b""
+                has_bom = raw_bytes.startswith(b"\xef\xbb\xbf")
+                orig_content = raw_bytes.decode("utf-8-sig", errors="replace")
                 orig_lines = orig_content.splitlines(keepends=True)
 
                 # Line replacement (1-based index)
@@ -370,7 +410,7 @@ def apply_remediation_plan(plan: RemediationPlan) -> None:
                         lines.insert(insert_idx, "import os\n")
                         modified_content = "".join(lines)
 
-                # Post-write syntax validation: must compile cleanly
+                # Post-write syntax validation: must compile cleanly without BOM
                 ast.parse(modified_content, filename=str(file_path))
 
                 # Write to temp file in same directory for atomic replace
@@ -378,12 +418,19 @@ def apply_remediation_plan(plan: RemediationPlan) -> None:
                 os.close(temp_fd)
                 temp_path = Path(temp_path_str)
                 staged_files.append(temp_path)
-                temp_path.write_text(modified_content, encoding="utf-8")
+
+                # Preserve BOM if original had BOM
+                if has_bom:
+                    temp_path.write_bytes(b"\xef\xbb\xbf" + modified_content.encode("utf-8"))
+                else:
+                    temp_path.write_text(modified_content, encoding="utf-8")
+
                 os.replace(temp_path, file_path)
 
         # Step 3: Update .env safely (never overwrite existing keys)
         if plan.env_additions:
-            env_content = backups.get(env_file, "")
+            env_bytes = backups.get(env_file)
+            env_content = env_bytes.decode("utf-8-sig", errors="replace") if env_bytes else ""
             existing_keys = set()
             for line in env_content.splitlines():
                 m = re.match(r"^\s*(?:export\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*=", line)
@@ -408,7 +455,8 @@ def apply_remediation_plan(plan: RemediationPlan) -> None:
 
         # Step 4: Update .env.example strictly with placeholder (never real secret!)
         if plan.example_additions:
-            ex_content = backups.get(example_file, "")
+            ex_bytes = backups.get(example_file)
+            ex_content = ex_bytes.decode("utf-8-sig", errors="replace") if ex_bytes else ""
             existing_keys = set()
             for line in ex_content.splitlines():
                 m = re.match(r"^\s*(?:export\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*=", line)
@@ -433,11 +481,19 @@ def apply_remediation_plan(plan: RemediationPlan) -> None:
                 temp_path.write_text(final_ex, encoding="utf-8")
                 os.replace(temp_path, example_file)
 
+        # Step 5: Ensure .gitignore excludes .env when secrets are extracted
+        if plan.env_additions:
+            ensure_env_in_gitignore(plan.target_root, backups)
+
     except Exception as e:
         # Atomic rollback on any failure
-        for p, original_text in backups.items():
+        for p, original_bytes in backups.items():
             try:
-                p.write_text(original_text, encoding="utf-8")
+                if original_bytes is None:
+                    if p.exists():
+                        p.unlink()
+                else:
+                    p.write_bytes(original_bytes)
             except Exception:
                 pass
 
