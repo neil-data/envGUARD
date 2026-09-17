@@ -59,7 +59,7 @@ def get_builtin_fallback_patterns() -> List[Pattern]:
         ("pem-private-key", "Private Key", r"-----BEGIN (?:[A-Z0-9_-]+ )?PRIVATE KEY-----", "HIGH", "PEM Private Key header"),
         ("api-key-assignment", "API Key Assignment", r"(?i)(?:api_key|apikey)\s*[:=]\s*['\"]?([a-zA-Z0-9_\-]{16,})['\"]?", "MEDIUM", "API key assignment"),
         ("secret-assignment", "Secret Assignment", r"(?i)(?:secret|client_secret)\s*[:=]\s*['\"]?([a-zA-Z0-9_\-]{16,})['\"]?", "MEDIUM", "Secret assignment"),
-        ("password-assignment", "Password Assignment", r"(?i)(?<![a-zA-Z0-9_])(?:password|passwd|pwd)\s*[:=]\s*['\"]?([^\s'\"#]{8,})['\"]?", "MEDIUM", "Password assignment"),
+        ("password-assignment", "Password Assignment", r"(?i)(?<![a-zA-Z0-9_])(?:password|passwd|pwd)\s*[:=]\s*['\"]?([^\s'\"#()]{8,})['\"]?", "MEDIUM", "Password assignment"),
     ]
     result = []
     for pid, name, reg, sev, desc in fallbacks:

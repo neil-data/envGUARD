@@ -1121,6 +1121,18 @@ def diff_cmd(ctx: click.Context, env_path: Path, example_path: Path, output_form
 
 
 @main.command(name="status")
+@click.argument(
+    "target_path",
+    required=False,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+)
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Target repository directory (defaults to current directory).",
+)
 @click.option(
     "--format",
     "-f",
@@ -1131,10 +1143,16 @@ def diff_cmd(ctx: click.Context, env_path: Path, example_path: Path, output_form
 )
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
 @click.pass_context
-def status_cmd(ctx: click.Context, output_format: str, verbose: bool) -> None:
+def status_cmd(
+    ctx: click.Context,
+    target_path: Optional[Path],
+    path: Optional[Path],
+    output_format: str,
+    verbose: bool,
+) -> None:
     """Show a comprehensive project security status report."""
     is_verbose = verbose or ctx.obj.get("VERBOSE", False)
-    cwd = Path.cwd()
+    cwd = (target_path or path or Path.cwd()).resolve()
     is_git = is_git_repo(cwd)
     repo_root = get_repo_root(cwd) or cwd
 
@@ -1318,11 +1336,16 @@ def baseline_group() -> None:
 
 
 @baseline_group.command(name="create")
+@click.argument(
+    "target_path",
+    required=False,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+)
 @click.option(
     "--path",
     "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
-    default=".",
+    default=None,
     help="Target directory to scan for baseline (defaults to current directory).",
 )
 @click.option(
@@ -1340,10 +1363,17 @@ def baseline_group() -> None:
 )
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
 @click.pass_context
-def baseline_create_cmd(ctx: click.Context, path: Path, output_path: Path, overwrite: bool, verbose: bool) -> None:
+def baseline_create_cmd(
+    ctx: click.Context,
+    target_path: Optional[Path],
+    path: Optional[Path],
+    output_path: Path,
+    overwrite: bool,
+    verbose: bool,
+) -> None:
     """Create a new baseline from current findings. Never stores raw secrets."""
     is_verbose = verbose or ctx.obj.get("VERBOSE", False)
-    target_dir = path.resolve()
+    target_dir = (target_path or path or Path(".")).resolve()
     resolved_output = output_path.resolve() if output_path.is_absolute() else (target_dir / output_path)
 
     try:
@@ -1387,11 +1417,16 @@ def baseline_create_cmd(ctx: click.Context, path: Path, output_path: Path, overw
 
 
 @main.command(name="init")
+@click.argument(
+    "target_path",
+    required=False,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+)
 @click.option(
     "--path",
     "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
-    default=".",
+    default=None,
     help="Target repository directory (defaults to current directory).",
 )
 @click.option(
@@ -1404,11 +1439,17 @@ def baseline_create_cmd(ctx: click.Context, path: Path, output_path: Path, overw
 )
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
 @click.pass_context
-def init_cmd(ctx: click.Context, path: Path, output_format: Optional[str], verbose: bool) -> None:
+def init_cmd(
+    ctx: click.Context,
+    target_path: Optional[Path],
+    path: Optional[Path],
+    output_format: Optional[str],
+    verbose: bool,
+) -> None:
     """Initialize EnvGuard configuration (.envguard.yml) and ignore file (.envguardignore)."""
     is_verbose = verbose or ctx.obj.get("VERBOSE", False)
     target_format = (output_format or ctx.obj.get("FORMAT", "text")).lower()
-    target_dir = path.resolve()
+    target_dir = (target_path or path or Path(".")).resolve()
 
     try:
         result = init_project(target_dir)
@@ -1426,11 +1467,16 @@ def init_cmd(ctx: click.Context, path: Path, output_format: Optional[str], verbo
 
 
 @main.command(name="doctor")
+@click.argument(
+    "target_path",
+    required=False,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+)
 @click.option(
     "--path",
     "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
-    default=".",
+    default=None,
     help="Target repository directory (defaults to current directory).",
 )
 @click.option(
@@ -1443,11 +1489,17 @@ def init_cmd(ctx: click.Context, path: Path, output_format: Optional[str], verbo
 )
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose diagnostics.")
 @click.pass_context
-def doctor_cmd(ctx: click.Context, path: Path, output_format: Optional[str], verbose: bool) -> None:
+def doctor_cmd(
+    ctx: click.Context,
+    target_path: Optional[Path],
+    path: Optional[Path],
+    output_format: Optional[str],
+    verbose: bool,
+) -> None:
     """Diagnose EnvGuard environment, configuration, tools, and hooks."""
     is_verbose = verbose or ctx.obj.get("VERBOSE", False)
     target_format = (output_format or ctx.obj.get("FORMAT", "text")).lower()
-    target_dir = path.resolve()
+    target_dir = (target_path or path or Path(".")).resolve()
 
     try:
         report = run_diagnostics(target_dir)

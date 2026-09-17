@@ -73,7 +73,7 @@
     {
       "id": "password-assignment",
       "name": "Password Assignment",
-      "regex": "(?i)(?<![a-zA-Z0-9_])(?:password|passwd|pwd)\\s*[:=]\\s*['\"]?([^\\s'\"#]{8,})['\"]?",
+      "regex": "(?i)(?<![a-zA-Z0-9_])(?:password|passwd|pwd)\\s*[:=]\\s*['\"]?([^\\s'\"#()]{8,})['\"]?",
       "severity": "MEDIUM",
       "description": "Variable assignment containing PASSWORD or PWD with a non-trivial value",
       "detects": "Hardcoded plaintext passwords assigned to password, passwd, or pwd variables",
@@ -83,7 +83,7 @@
     {
       "id": "db-password-assignment",
       "name": "Database Password Assignment",
-      "regex": "(?i)(?:database_password|db_password|db_pass)\\s*[:=]\\s*['\"]?([^\\s'\"#]{6,})['\"]?",
+      "regex": "(?i)(?:database_password|db_password|db_pass)\\s*[:=]\\s*['\"]?([^\\s'\"#()]{6,})['\"]?",
       "severity": "MEDIUM",
       "description": "Variable assignment containing DATABASE_PASSWORD with a non-trivial value",
       "detects": "Hardcoded database passwords in configuration files or code",

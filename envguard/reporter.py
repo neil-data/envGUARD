@@ -1711,7 +1711,7 @@ def print_lint_report(report: Any) -> None:
     table.add_column("Level", justify="center", style="bold", no_wrap=True)
     table.add_column("File", style="bold", no_wrap=True)
     table.add_column("Directive / Field", style="cyan", no_wrap=False, overflow="fold")
-    table.add_column("Diagnostic Message", no_wrap=False, overflow="fold")
+    table.add_column("Diagnostic Message", min_width=25, no_wrap=False, overflow="fold")
     table.add_column("Recommendation", style="yellow", no_wrap=False, overflow="fold")
 
     for d in getattr(report, "diagnostics", []):

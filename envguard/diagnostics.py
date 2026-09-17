@@ -58,10 +58,10 @@ def run_diagnostics(repo_path: Path) -> DiagnosticReport:
 
     # 1. Python
     py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    if sys.version_info >= (3, 9):
-        report.checks.append(DiagnosticCheck("Python Runtime", "PASS", f"Python {py_ver} (Compatible >= 3.9)"))
+    if sys.version_info >= (3, 10):
+        report.checks.append(DiagnosticCheck("Python Runtime", "PASS", f"Python {py_ver} (Compatible >= 3.10)"))
     else:
-        report.checks.append(DiagnosticCheck("Python Runtime", "WARNING", f"Python {py_ver} (might be incompatible with some features)", "Upgrade to Python 3.9 or newer."))
+        report.checks.append(DiagnosticCheck("Python Runtime", "WARNING", f"Python {py_ver} (might be incompatible with some features)", "Upgrade to Python 3.10 or newer."))
 
     # 2. EnvGuard Version
     report.checks.append(DiagnosticCheck("EnvGuard Version", "PASS", f"v{__version__}"))

@@ -1,10 +1,16 @@
 """Regex pattern detector integrating existing and expanded pattern rules."""
 
+import re
 from typing import List, Optional
 
-from envguard.detectors.entropy_detector import extract_assignment_candidates
+from envguard.detectors.entropy_detector import (
+    extract_assignment_candidates,
+    is_code_expression,
+    is_env_or_code_context,
+)
 from envguard.detectors.scoring import DetectionCandidate
 from envguard.patterns import Pattern
+from envguard.secrets_manager import detect_secrets_manager_reference
 from envguard.utils import mask_secret
 
 PROVIDER_PREFIX_RULES = {
@@ -45,7 +51,36 @@ def detect_regex_candidates(
             continue
 
 
+        is_assignment_pattern = pattern.id.endswith("-assignment") or pattern.id in {
+            "generic-credential",
+            "generic-secret",
+        }
+
+        # If line contains a secrets manager or environment lookup, assignment rules should not flag it
+        if is_assignment_pattern and detect_secrets_manager_reference(line):
+            continue
+
         for secret_val, start, end in pattern.find_matches(line):
+            if is_env_or_code_context(secret_val, line):
+                continue
+
+            if is_assignment_pattern:
+                # Check if secret_val is code, function call, or environment lookup
+                if is_code_expression(secret_val):
+                    continue
+
+                # If matched value is immediately followed by '(', it is a function invocation (e.g. func())
+                if re.match(r"^\s*\(", line[end:]):
+                    continue
+
+                # If matched value is immediately preceded by '.', it is an attribute access (e.g. obj.val)
+                if line[:start].rstrip().endswith("."):
+                    continue
+
+                rhs = line[start:].strip()
+                if is_code_expression(rhs):
+                    continue
+
             # Special validation for Google Service Account Key:
             # Require multiple service account fields (e.g. private_key or client_email) to avoid false positives
             if pattern.id == "google-service-account-key":

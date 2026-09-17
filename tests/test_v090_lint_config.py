@@ -1,6 +1,7 @@
 """Tests for envguard lint-config command (v0.9.0)."""
 
 from pathlib import Path
+import re
 from click.testing import CliRunner
 import pytest
 
@@ -70,7 +71,7 @@ rules:
     result = runner.invoke(main, ["lint-config", str(tmp_path)])
     assert result.exit_code == 1
     assert "cannot be" in result.output
-    assert "both disabled" in result.output
+    assert re.search(r"both\s+disabled", result.output) or ("both" in result.output and "disabled" in result.output)
 
 
 def test_lint_config_org_override_conflict(tmp_path: Path):

@@ -25,6 +25,16 @@ BUILTIN_IGNORED_DIRS = {
     "dist",
     "build",
     "egg-info",
+    ".envguard_cache",
+}
+
+BUILTIN_IGNORED_FILES = {
+    ".envguard-baseline.json",
+    ".envguard.yml",
+    ".envguard.yaml",
+    ".envguard-org.yml",
+    ".envguard-org.yaml",
+    ".envguardignore",
 }
 
 
@@ -49,6 +59,19 @@ def should_ignore_dir(dir_name: str) -> bool:
     return False
 
 
+def should_ignore_file(file_name: str) -> bool:
+    """Check if file name matches built-in ignore list."""
+    if file_name in BUILTIN_IGNORED_FILES:
+        return True
+    if file_name.startswith(".envguard") and (
+        file_name.endswith(".json")
+        or file_name.endswith(".yml")
+        or file_name.endswith(".yaml")
+    ):
+        return True
+    return False
+
+
 def is_path_ignored(
     rel_path: str,
     gitignore_spec: Optional[pathspec.PathSpec] = None,
@@ -68,10 +91,15 @@ def is_path_ignored(
     """
     path_to_match = f"{rel_path}/" if is_dir and not rel_path.endswith("/") else rel_path
 
-    # 1. Built-in check for path parts
+    # 1. Built-in check for path parts and filenames
     parts = rel_path.strip("/").split("/")
     for part in parts:
         if should_ignore_dir(part):
+            return True, "builtin"
+
+    if not is_dir:
+        file_name = Path(rel_path).name
+        if should_ignore_file(file_name):
             return True, "builtin"
 
     # 2. .gitignore
