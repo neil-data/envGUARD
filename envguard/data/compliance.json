@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "description": "Cross-reference mapping between EnvGuard secret detection rules and established industry security and compliance frameworks.",
+  "disclaimer": "These mappings are informational control cross-references for security posture assessment and internal auditing. They do NOT constitute formal compliance certification, legal advice, or guarantee of regulatory approval.",
+  "frameworks": {
+    "soc2": {
+      "id": "soc2",
+      "name": "SOC 2 Type II (Trust Services Criteria 2017)",
+      "controls": {
+        "CC6.1": {
+          "title": "Logical Access Controls",
+          "description": "The entity implements logical access security software, infrastructure, and architectures over protected information assets to protect them from security events."
+        },
+        "CC6.6": {
+          "title": "Boundary Protection & Leakage Mitigation",
+          "description": "The entity implements logical boundaries and prevents credential exposure across boundary perimeters (repositories, CI/CD runners)."
+        },
+        "CC6.7": {
+          "title": "Credential & Key Transmission Protection",
+          "description": "The entity restricts the transmission, movement, and storage of confidential credentials to authorized channels, preventing hardcoded plaintext storage."
+        }
+      }
+    },
+    "iso27001": {
+      "id": "iso27001",
+      "name": "ISO/IEC 27001:2022",
+      "controls": {
+        "A.5.15": {
+          "title": "Access Control",
+          "description": "Rules to control physical and logical access to information and other associated assets shall be established and implemented."
+        },
+        "A.8.12": {
+          "title": "Data Leakage Prevention",
+          "description": "Data leakage prevention measures shall be applied to systems, networks and any other devices that process, store or transmit sensitive information."
+        },
+        "A.8.24": {
+          "title": "Use of Cryptography & Key Management",
+          "description": "Rules for the effective use of cryptography, including cryptographic key management, shall be defined and implemented."
+        }
+      }
+    }
+  },
+  "rule_mappings": {
+    "aws-access-key": {
+      "category": "Cloud Infrastructure Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12", "A.8.24"]
+      }
+    },
+    "aws-secret-access-key": {
+      "category": "Cloud Infrastructure Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12", "A.8.24"]
+      }
+    },
+    "aws-session-token": {
+      "category": "Cloud Infrastructure Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "google-api-key": {
+      "category": "Cloud Infrastructure Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "google-service-account-key": {
+      "category": "Cloud Infrastructure Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12", "A.8.24"]
+      }
+    },
+    "azure-storage-connection-string": {
+      "category": "Cloud Infrastructure Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12", "A.8.24"]
+      }
+    },
+    "azure-storage-key": {
+      "category": "Cloud Infrastructure Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12", "A.8.24"]
+      }
+    },
+    "github-token": {
+      "category": "Developer & CI/CD Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "gitlab-token": {
+      "category": "Developer & CI/CD Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "npm-token": {
+      "category": "Package Registry Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "pypi-token": {
+      "category": "Package Registry Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "slack-token": {
+      "category": "SaaS & Collaboration Tokens",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "discord-token": {
+      "category": "SaaS & Collaboration Tokens",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "stripe-secret-key": {
+      "category": "Payment & Financial Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12", "A.8.24"]
+      }
+    },
+    "pem-private-key": {
+      "category": "Cryptographic Private Keys",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.24"]
+      }
+    },
+    "jwt-token": {
+      "category": "Session & Authentication Tokens",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "password-assignment": {
+      "category": "Authentication Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "db-password-assignment": {
+      "category": "Database Credentials",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "api-key-assignment": {
+      "category": "API Keys",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.6", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "secret-assignment": {
+      "category": "Application Secrets",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "secret-key-assignment": {
+      "category": "Application Secrets",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12", "A.8.24"]
+      }
+    },
+    "token-assignment": {
+      "category": "Authentication Tokens",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "generic-credential": {
+      "category": "Generic Credentials",
+      "controls": {
+        "soc2": ["CC6.1"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "generic-secret": {
+      "category": "Generic Secrets",
+      "controls": {
+        "soc2": ["CC6.1"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    },
+    "generic-high-entropy-secret": {
+      "category": "High-Entropy Secrets",
+      "controls": {
+        "soc2": ["CC6.1", "CC6.7"],
+        "iso27001": ["A.5.15", "A.8.12"]
+      }
+    }
+  }
+}

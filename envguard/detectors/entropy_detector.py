@@ -208,10 +208,15 @@ def detect_entropy_candidates(
         if any(c.isspace() for c in val):
             continue
 
-        # 3. Skip URLs, schema references, file paths, and action/image references
-        if val.startswith("http://") or val.startswith("https://") or "://" in val or val.startswith("/") or val.startswith("./"):
+        # 3. Skip URLs, anchors, schema references, file paths, and action/image references
+        if val.startswith("http://") or val.startswith("https://") or "://" in val or val.startswith("/") or val.startswith("./") or val.startswith("#"):
             continue
         if ("/" in val and ("@" in val or ":" in val)) or re.search(r"\.(?:md|yml|yaml|json|toml|txt|html|py|js|ts|css|sh|xml|csv|tar\.gz|zip)$", val, re.IGNORECASE):
+            continue
+
+        # 3b. Skip dictionary / JSON object keys (e.g. "key": value)
+        escaped_val = re.escape(val)
+        if re.search(r"""['"]""" + escaped_val + r"""['"]\s*:""", line):
             continue
 
         # 4. Skip format strings or template expressions

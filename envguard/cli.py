@@ -95,10 +95,15 @@ from envguard.reporter import (
     render_scan_json,
     render_status_json,
     print_remediation_plan,
+    print_lint_report,
+    render_lint_json,
+    print_audit_summary,
     write_output,
 )
 from envguard.scanner import scan_directory, scan_files, scan_staged
 from envguard.theme import create_error_panel, create_success_panel
+from envguard.config_linter import lint_configuration
+from envguard.audit import build_audit_data, generate_html_audit_report, generate_audit_json
 
 
 def handle_cli_error(e: Exception, verbose: bool = False, debug: bool = False) -> None:
@@ -1690,5 +1695,220 @@ def fix_cmd(
         sys.exit(2)
 
 
+@main.command(name="lint-config")
+@click.argument(
+    "path_arg",
+    required=False,
+    type=click.Path(exists=True, file_okay=True, dir_okay=True, path_type=Path),
+    default=None,
+)
+@click.option(
+    "--path",
+    "-p",
+    "path_opt",
+    type=click.Path(exists=True, file_okay=True, dir_okay=True, path_type=Path),
+    default=None,
+    help="Target directory or configuration file to lint (defaults to current directory).",
+)
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default="text",
+    help="Output format: text (default) or json.",
+)
+@click.option(
+    "--output",
+    "-o",
+    "output_file",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Optional file path to write output to.",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Show detailed diagnostic context.",
+)
+@click.pass_context
+def lint_config_cmd(
+    ctx: click.Context,
+    path_arg: Optional[Path],
+    path_opt: Optional[Path],
+    output_format: str,
+    output_file: Optional[Path],
+    verbose: bool,
+) -> None:
+    """Validate EnvGuard configuration files and Git safety controls.
+
+    Performs comprehensive schema validation, unknown key checks, rule ID verification,
+    cross-policy conflict analysis, and .env repository exposure checks.
+    """
+    is_verbose = verbose or ctx.obj.get("VERBOSE", False)
+    target = path_arg or path_opt or Path.cwd()
+    target_format = output_format.lower()
+
+    try:
+        if target.is_file():
+            target_dir = target.parent
+            if target.name == ".envguard-org.yml":
+                report = lint_configuration(target_dir, org_path=target)
+            else:
+                report = lint_configuration(target_dir, config_path=target)
+        else:
+            report = lint_configuration(target)
+
+        if target_format == "json":
+            render_lint_json(report, output_path=output_file)
+        else:
+            print_lint_report(report)
+            if output_file:
+                # Capture text output if user requested file write
+                render_lint_json(report, output_path=output_file)
+
+        sys.exit(report.exit_code)
+
+    except EnvGuardError as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+    except Exception as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+
+
+@main.command(name="audit")
+@click.argument(
+    "path_arg",
+    required=False,
+    type=click.Path(exists=True, file_okay=True, dir_okay=True, path_type=Path),
+    default=None,
+)
+@click.option(
+    "--path",
+    "-p",
+    "path_opt",
+    type=click.Path(exists=True, file_okay=True, dir_okay=True, path_type=Path),
+    default=None,
+    help="Target directory to audit (defaults to current directory).",
+)
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["text", "json", "html"], case_sensitive=False),
+    default="text",
+    help="Output format: text (default), json, or html.",
+)
+@click.option(
+    "--output",
+    "-o",
+    "output_file",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="File path to save the generated report (strongly recommended for HTML).",
+)
+@click.option(
+    "--baseline",
+    "-b",
+    "baseline_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Path to baseline file for historical trend analysis (defaults to .envguard-baseline.json).",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Show verbose audit output.",
+)
+@click.pass_context
+def audit_cmd(
+    ctx: click.Context,
+    path_arg: Optional[Path],
+    path_opt: Optional[Path],
+    output_format: str,
+    output_file: Optional[Path],
+    baseline_path: Optional[Path],
+    verbose: bool,
+) -> None:
+    """Generate executive compliance and historical audit reports.
+
+    Evaluates codebase against SOC 2 and ISO 27001 control mappings, tracks historical
+    debt velocity against baseline snapshots, audits configuration health, and computes
+    an executive security posture grade.
+    """
+    is_verbose = verbose or ctx.obj.get("VERBOSE", False)
+    target = path_arg or path_opt or Path.cwd()
+    target_format = output_format.lower()
+
+    try:
+        config = load_config(target if target.is_dir() else target.parent)
+        patterns = load_default_patterns()
+
+        if target.is_file():
+            from envguard.scanner import scan_file_streaming
+            findings, _ = scan_file_streaming(
+                file_path=target,
+                rel_path_str=target.name,
+                patterns=patterns,
+                max_file_size_bytes=config.max_file_size_bytes,
+                advanced_config=config.advanced_detection,
+            )
+            target_dir = target.parent
+        else:
+            findings = scan_directory(
+                directory=target,
+                patterns=patterns,
+                respect_gitignore=True,
+                exclude_patterns=config.exclude,
+                max_file_size_bytes=config.max_file_size_bytes,
+                advanced_config=config.advanced_detection,
+            )
+            target_dir = target
+
+        # Build complete audit data
+        audit_data = build_audit_data(
+            target_root=target_dir,
+            findings=findings,
+            baseline_path=baseline_path,
+        )
+
+        if target_format == "html":
+            html_content = generate_html_audit_report(audit_data)
+            out_target = output_file or (target_dir / "envguard-audit-report.html")
+            out_target.write_text(html_content, encoding="utf-8")
+            console.print(
+                Panel(
+                    f"[bold green]Audit report generated successfully![/bold green]\n"
+                    f"Saved to: [bold cyan]{out_target.resolve()}[/bold cyan]\n\n"
+                    f"[dim]Open this file in any web browser to view or print to PDF.[/dim]",
+                    title="[bold]HTML Audit Report[/bold]",
+                    border_style="green",
+                    box=box.ROUNDED,
+                )
+            )
+        elif target_format == "json":
+            json_dict = generate_audit_json(audit_data)
+            from envguard.reporter import print_json
+            print_json(json_dict, output_path=output_file)
+        else:
+            print_audit_summary(audit_data)
+
+        # Audit command exits with 0 if no High severity findings, 1 if High severity findings detected
+        sys.exit(0 if audit_data.high_count == 0 else 1)
+
+    except EnvGuardError as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+    except Exception as e:
+        handle_cli_error(e, verbose=is_verbose)
+        sys.exit(2)
+
+
 if __name__ == "__main__":
     main()
+

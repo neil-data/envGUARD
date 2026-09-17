@@ -1681,3 +1681,164 @@ def render_fix_json(plan: Any, applied: bool = False, output_path: Optional[Path
     }
     print_json(data, output_path=output_path)
 
+
+def print_lint_report(report: Any) -> None:
+    """Render the configuration linter results in formatted Rich tables."""
+    console.print()
+    is_clean = getattr(report, "is_clean", True)
+    border_style = "green" if is_clean else "red"
+    title_text = "[bold green]CONFIGURATION ASSURANCE: PASS[/bold green]" if is_clean else "[bold red]CONFIGURATION ASSURANCE: ISSUES DETECTED[/bold red]"
+
+    console.print(
+        Panel(
+            Align.center(title_text),
+            title="[bold]EnvGuard Config Linter[/bold]",
+            border_style=border_style,
+            box=box.ROUNDED,
+            expand=False,
+            padding=(0, 2),
+        )
+    )
+    console.print()
+
+    table = Table(
+        title="[bold]Configuration Diagnostics[/bold]",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        expand=False,
+    )
+    table.add_column("Level", justify="center", style="bold", no_wrap=True)
+    table.add_column("File", style="bold", no_wrap=True)
+    table.add_column("Directive / Field", style="cyan", no_wrap=False, overflow="fold")
+    table.add_column("Diagnostic Message", no_wrap=False, overflow="fold")
+    table.add_column("Recommendation", style="yellow", no_wrap=False, overflow="fold")
+
+    for d in getattr(report, "diagnostics", []):
+        lvl = d.level.upper()
+        if lvl == "ERROR":
+            lvl_fmt = "[bold red]ERROR[/bold red]"
+        elif lvl == "WARNING":
+            lvl_fmt = "[bold yellow]WARNING[/bold yellow]"
+        elif lvl == "PASS":
+            lvl_fmt = "[bold green]PASS[/bold green]"
+        else:
+            lvl_fmt = f"[bold blue]{lvl}[/bold blue]"
+
+        table.add_row(
+            lvl_fmt,
+            d.file or "-",
+            d.field or "-",
+            d.message,
+            d.recommendation or "-",
+        )
+
+    console.print(table)
+    console.print()
+
+    summary_text = (
+        f"[bold]Summary:[/bold] "
+        f"[bold red]{report.error_count} error(s)[/bold red]  •  "
+        f"[bold yellow]{report.warning_count} warning(s)[/bold yellow]"
+    )
+    console.print(summary_text)
+    console.print()
+
+
+def render_lint_json(report: Any, output_path: Optional[Path] = None) -> None:
+    """Render machine-readable JSON for config lint diagnostics."""
+    data = {
+        "version": __version__,
+        "command": "lint-config",
+        "clean": getattr(report, "is_clean", True),
+        "error_count": getattr(report, "error_count", 0),
+        "warning_count": getattr(report, "warning_count", 0),
+        "diagnostics": [
+            {
+                "file": d.file,
+                "field": d.field,
+                "level": d.level,
+                "message": d.message,
+                "recommendation": d.recommendation,
+                "line": d.line,
+                "column": d.column,
+            }
+            for d in getattr(report, "diagnostics", [])
+        ],
+    }
+    print_json(data, output_path=output_path)
+
+
+def print_audit_summary(data: Any) -> None:
+    """Render terminal summary for envguard audit."""
+    console.print()
+    grade = getattr(data, "posture_grade", "N/A")
+    grade_style = "bold green" if "A" in grade else ("bold blue" if "B" in grade else ("bold yellow" if "C" in grade else "bold red"))
+
+    header_panel = Panel(
+        Align.center(f"Security Posture Grade: [{grade_style}]{grade}[/{grade_style}]\n"
+                     f"[dim]Total Findings: {len(data.findings)}  •  High: {data.high_count}  •  Medium: {data.medium_count}  •  Low: {data.low_count}[/dim]"),
+        title=f"[bold]EnvGuard Compliance & Security Audit: {data.metadata.repo_name}[/bold]",
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(0, 2),
+    )
+    console.print(header_panel)
+    console.print()
+
+    # Compliance Overview Table
+    comp = data.compliance
+    comp_table = Table(
+        title="[bold]Compliance Framework Cross-Reference[/bold]",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+    )
+    comp_table.add_column("Framework", style="bold")
+    comp_table.add_column("Control", style="bold green")
+    comp_table.add_column("Title")
+    comp_table.add_column("Violations", justify="right", style="bold yellow")
+
+    for cid, ctrl in sorted(comp.soc2_controls.items()):
+        comp_table.add_row("SOC 2 Type II", cid, ctrl.title, str(ctrl.findings_count))
+    for cid, ctrl in sorted(comp.iso27001_controls.items()):
+        comp_table.add_row("ISO/IEC 27001", cid, ctrl.title, str(ctrl.findings_count))
+
+    if comp.total_impacted_controls == 0:
+        comp_table.add_row("All Frameworks", "-", "No compliance control violations detected.", "0")
+
+    console.print(comp_table)
+    console.print()
+
+    # Historical Trend Table
+    trend = data.trend
+    trend_table = Table(
+        title="[bold]Historical Trend (Baseline Snapshot Delta)[/bold]",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+    )
+    trend_table.add_column("Metric", style="bold")
+    trend_table.add_column("Value", justify="right")
+    trend_table.add_column("Status / Trend", style="bold")
+
+    trend_table.add_row("Baseline Snapshot", str(trend.baseline_count), "Found" if trend.baseline_exists else "None")
+    trend_table.add_row("Current Findings", str(trend.current_count), f"[bold red]+{len(trend.new_findings)} new[/bold red]" if trend.new_findings else "[bold green]0 new[/bold green]")
+    trend_table.add_row("Remediated Secrets", str(trend.resolved_count), f"[bold green]{trend.remediation_rate_pct}% resolved[/bold green]")
+    trend_table.add_row("Overall Trajectory", trend.trend_direction, f"[bold green]IMPROVING[/bold green]" if trend.trend_direction == "IMPROVING" else f"[bold]{trend.trend_direction}[/bold]")
+
+    console.print(trend_table)
+    console.print()
+
+    # Disclaimer
+    console.print(
+        Panel(
+            f"[italic yellow]{comp.disclaimer}[/italic yellow]",
+            title="[bold yellow]Compliance Notice[/bold yellow]",
+            border_style="yellow",
+            box=box.ROUNDED,
+            padding=(0, 2),
+        )
+    )
+    console.print()
+
