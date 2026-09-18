@@ -69,6 +69,16 @@ def should_ignore_file(file_name: str) -> bool:
         or file_name.endswith(".yaml")
     ):
         return True
+    if file_name.endswith(".sarif"):
+        return True
+    if file_name.startswith("envguard-") and (
+        file_name.endswith(".sarif")
+        or file_name.endswith(".json")
+        or file_name.endswith(".html")
+        or file_name.endswith(".csv")
+        or file_name.endswith(".md")
+    ):
+        return True
     return False
 
 

@@ -25,6 +25,15 @@ class CIConfig:
 
 
 @dataclass
+class ReportingConfig:
+    """Reporting and output display settings."""
+    color: bool = True
+    show_fingerprints: bool = False
+    format: Optional[str] = None
+    output: Optional[str] = None
+
+
+@dataclass
 class EnvGuardConfig:
     version: int = 1
     max_file_size_mb: float = DEFAULT_MAX_FILE_SIZE_MB
@@ -35,6 +44,7 @@ class EnvGuardConfig:
     block_on: List[str] = field(default_factory=lambda: list(DEFAULT_BLOCK_ON))
     advanced_detection: AdvancedDetectionConfig = field(default_factory=AdvancedDetectionConfig)
     ci: CIConfig = field(default_factory=CIConfig)
+    reporting: ReportingConfig = field(default_factory=ReportingConfig)
     warnings: List[str] = field(default_factory=list)
     config_file_path: Optional[Path] = None
     has_explicit_block_on: bool = False
@@ -307,6 +317,8 @@ def load_raw_config_file(file_to_load: Path) -> EnvGuardConfig:
         block_on.append(b_str)
 
     # 7. Reporting section
+    warnings: List[str] = []
+    reporting_config = ReportingConfig()
     reporting_section = raw_data.get("reporting")
     if reporting_section is None:
         reporting_section = {}
@@ -318,9 +330,72 @@ def load_raw_config_file(file_to_load: Path) -> EnvGuardConfig:
             received=type(reporting_section).__name__,
             config_path=config_filename,
         )
+    else:
+        rep_color = reporting_config.color
+        if "color" in reporting_section:
+            c_val = reporting_section["color"]
+            if not isinstance(c_val, bool):
+                raise ConfigurationError(
+                    "'reporting.color' must be a boolean",
+                    field="reporting.color",
+                    expected="boolean",
+                    received=type(c_val).__name__,
+                    config_path=config_filename,
+                )
+            rep_color = c_val
+
+        rep_show_fp = reporting_config.show_fingerprints
+        if "show_fingerprints" in reporting_section:
+            sfp = reporting_section["show_fingerprints"]
+            if not isinstance(sfp, bool):
+                raise ConfigurationError(
+                    "'reporting.show_fingerprints' must be a boolean",
+                    field="reporting.show_fingerprints",
+                    expected="boolean",
+                    received=type(sfp).__name__,
+                    config_path=config_filename,
+                )
+            rep_show_fp = sfp
+
+        rep_format = reporting_config.format
+        if "format" in reporting_section:
+            fmt = reporting_section["format"]
+            if fmt is not None and not isinstance(fmt, str):
+                raise ConfigurationError(
+                    "'reporting.format' must be a string",
+                    field="reporting.format",
+                    expected="string",
+                    received=type(fmt).__name__,
+                    config_path=config_filename,
+                )
+            rep_format = fmt
+
+        rep_output = reporting_config.output
+        if "output" in reporting_section:
+            out = reporting_section["output"]
+            if out is not None and not isinstance(out, str):
+                raise ConfigurationError(
+                    "'reporting.output' must be a string",
+                    field="reporting.output",
+                    expected="string",
+                    received=type(out).__name__,
+                    config_path=config_filename,
+                )
+            rep_output = out
+
+        known_reporting_keys = {"color", "show_fingerprints", "format", "output"}
+        for k in reporting_section:
+            if k not in known_reporting_keys:
+                warnings.append(f"Unknown key '{k}' in reporting configuration")
+
+        reporting_config = ReportingConfig(
+            color=rep_color,
+            show_fingerprints=rep_show_fp,
+            format=rep_format,
+            output=rep_output,
+        )
 
     # 8. Advanced Detection section
-    warnings: List[str] = []
     adv_section = raw_data.get("advanced_detection")
     if adv_section is None:
         adv_config = AdvancedDetectionConfig()
@@ -501,6 +576,17 @@ def load_raw_config_file(file_to_load: Path) -> EnvGuardConfig:
                     config_path=config_filename,
                 )
             annot = an
+        elif "emit_annotations" in ci_section:
+            an = ci_section["emit_annotations"]
+            if not isinstance(an, bool):
+                raise ConfigurationError(
+                    "'ci.emit_annotations' must be a boolean",
+                    field="ci.emit_annotations",
+                    expected="boolean",
+                    received=type(an).__name__,
+                    config_path=config_filename,
+                )
+            annot = an
 
         summary = ci_config.job_summary
         if "job_summary" in ci_section:
@@ -514,8 +600,27 @@ def load_raw_config_file(file_to_load: Path) -> EnvGuardConfig:
                     config_path=config_filename,
                 )
             summary = js
+        elif "step_summary" in ci_section:
+            js = ci_section["step_summary"]
+            if not isinstance(js, bool):
+                raise ConfigurationError(
+                    "'ci.step_summary' must be a boolean",
+                    field="ci.step_summary",
+                    expected="boolean",
+                    received=type(js).__name__,
+                    config_path=config_filename,
+                )
+            summary = js
 
-        known_ci_keys = {"changed_files_only", "base_branch", "annotations", "job_summary"}
+        known_ci_keys = {
+            "changed_files_only",
+            "base_branch",
+            "annotations",
+            "emit_annotations",
+            "job_summary",
+            "step_summary",
+            "fail_on_warning",
+        }
         for k in ci_section:
             if k not in known_ci_keys:
                 warnings.append(f"Unknown key '{k}' in ci configuration")
@@ -568,6 +673,7 @@ def load_raw_config_file(file_to_load: Path) -> EnvGuardConfig:
         block_on=block_on,
         advanced_detection=adv_config,
         ci=ci_config,
+        reporting=reporting_config,
         warnings=warnings,
         config_file_path=file_to_load,
         has_explicit_block_on=has_explicit_block_on,
@@ -659,6 +765,7 @@ def load_config(
         block_on=effective_block_on,
         advanced_detection=local_cfg.advanced_detection,
         ci=local_cfg.ci,
+        reporting=local_cfg.reporting,
         warnings=effective_warnings,
         config_file_path=local_cfg.config_file_path,
         has_explicit_block_on=local_cfg.has_explicit_block_on,

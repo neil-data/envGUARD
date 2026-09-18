@@ -62,14 +62,39 @@ def compute_baseline_trend(
 
     new_findings: List[ScanFinding] = []
     persistent_findings: List[ScanFinding] = []
+    matched_baseline_fps: Set[str] = set()
 
     for f in findings:
+        matched = False
         if f.fingerprint in baseline_fingerprints:
+            matched = True
+            matched_baseline_fps.add(f.fingerprint)
+
+        # Check legacy fingerprint (canonical vs legacy path-based SHA256)
+        if hasattr(f, "rule_id") and hasattr(f, "file_path") and hasattr(f, "raw_value"):
+            from envguard.scanner import compute_legacy_fingerprint
+            legacy_fp = compute_legacy_fingerprint(f.rule_id, f.file_path, f.raw_value)
+            if legacy_fp in baseline_fingerprints:
+                matched = True
+                matched_baseline_fps.add(legacy_fp)
+
+        # Check secondary occurrences
+        for occ in getattr(f, "occurrences", []):
+            occ_file = occ.get("file_path")
+            if occ_file and hasattr(f, "rule_id") and hasattr(f, "raw_value"):
+                from envguard.scanner import compute_legacy_fingerprint
+                occ_legacy_fp = compute_legacy_fingerprint(f.rule_id, occ_file, f.raw_value)
+                if occ_legacy_fp in baseline_fingerprints:
+                    matched = True
+                    matched_baseline_fps.add(occ_legacy_fp)
+
+        if matched:
             persistent_findings.append(f)
         else:
             new_findings.append(f)
 
-    resolved_count = len(baseline_fingerprints - current_fingerprints)
+    # Resolved count: ONLY baseline secrets genuinely absent from the current scan
+    resolved_count = len(baseline_fingerprints - matched_baseline_fps)
 
     if baseline_count > 0:
         remediation_rate = round((resolved_count / baseline_count) * 100.0, 1)

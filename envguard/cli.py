@@ -1562,10 +1562,12 @@ def explain_cmd(ctx: click.Context, rule_id: str, output_format: Optional[str], 
         sys.exit(2)
 
 
-@main.group(name="rules")
-def rules_group() -> None:
+@main.group(name="rules", invoke_without_command=True)
+@click.pass_context
+def rules_group(ctx: click.Context) -> None:
     """Inspect and list EnvGuard detection rules."""
-    pass
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(rules_list_cmd)
 
 
 @rules_group.command(name="list")

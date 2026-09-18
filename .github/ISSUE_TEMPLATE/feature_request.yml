@@ -1,0 +1,14 @@
+name: Feature Request
+description: Suggest an idea or enhancement for EnvGuard
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Suggest an enhancement for EnvGuard.
+  - type: textarea
+    id: feature
+    attributes:
+      label: Feature Description
+      description: Describe the feature you would like to see added.
+    validations:
+      required: true

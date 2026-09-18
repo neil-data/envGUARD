@@ -113,7 +113,7 @@
     {
       "id": "generic-secret",
       "name": "Generic Secret Assignment",
-      "regex": "(?i)(?:key)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{10,15})['\"]?",
+      "regex": "(?i)(?<![a-zA-Z0-9_])(?:key)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{10,15})['\"]?",
       "severity": "LOW",
       "description": "Variable assignment referencing key with potential secret",
       "detects": "Short assignments to key variables that may represent API or service keys",

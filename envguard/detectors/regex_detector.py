@@ -60,6 +60,13 @@ def detect_regex_candidates(
         if is_assignment_pattern and detect_secrets_manager_reference(line):
             continue
 
+        # If assignment variable name is in non-secret context (e.g. QUEUE_KEY, TEST_KEY, REGISTRY_KEY, BASE58_ALPHABET)
+        if is_assignment_pattern and var_name:
+            from envguard.detectors.context_detector import analyze_context
+            ctx_res = analyze_context(var_name)
+            if ctx_res.is_non_secret_context:
+                continue
+
         for secret_val, start, end in pattern.find_matches(line):
             if is_env_or_code_context(secret_val, line):
                 continue

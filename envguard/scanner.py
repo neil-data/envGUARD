@@ -32,11 +32,23 @@ IGNORED_DIRECTORIES: Set[str] = BUILTIN_IGNORED_DIRS
 DEFAULT_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 
 
-def compute_fingerprint(rule_id: str, file_path: str, raw_secret: str) -> str:
-    """Compute SHA-256 fingerprint from rule_id, normalized file path, and raw secret.
+def compute_fingerprint(rule_id: str, file_path_or_secret: str, raw_secret: Optional[str] = None) -> str:
+    """Compute deterministic SHA-256 fingerprint from canonical identity of rule_id and raw secret.
 
     Never exposes raw secret outside of this calculation.
+    Supports both canonical signature (rule_id, raw_secret) and legacy signature (rule_id, file_path, raw_secret).
     """
+    if raw_secret is None:
+        target_val = file_path_or_secret
+    else:
+        target_val = raw_secret
+    payload = f"{rule_id}:{target_val}".encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()
+    return f"sha256:{digest}"
+
+
+def compute_legacy_fingerprint(rule_id: str, file_path: str, raw_secret: str) -> str:
+    """Compute legacy SHA-256 fingerprint including file path for backwards compatibility."""
     normalized_path = file_path.replace("\\", "/").lstrip("./")
     payload = f"{rule_id}:{normalized_path}:{raw_secret}".encode("utf-8")
     digest = hashlib.sha256(payload).hexdigest()
@@ -83,6 +95,12 @@ class ScanFinding:
     blocked_by: Optional[str] = None
     column: Optional[int] = None
     end_column: Optional[int] = None
+    occurrences: List[Dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def occurrence_count(self) -> int:
+        """Total number of occurrences including primary."""
+        return 1 + len(self.occurrences)
 
     @property
     def confidence(self) -> str:
@@ -338,7 +356,65 @@ def scan_lines(
         )
         findings.extend(merged)
 
-    return findings
+    return deduplicate_findings(findings)
+
+
+def deduplicate_findings(findings: List[ScanFinding]) -> List[ScanFinding]:
+    """Canonicalize logical secrets: group identical secrets into a single finding while preserving all occurrence locations."""
+    if not findings:
+        return []
+
+    canonical: Dict[str, ScanFinding] = {}
+    seen_locations: Dict[str, Set[Tuple[str, int, Optional[int]]]] = {}
+
+    for f in findings:
+        # Group by canonical identity of secret + rule
+        key = f"{f.rule_id}:{f.raw_value}"
+        loc_tuple = (f.file_path.replace("\\", "/"), f.line_number, f.column)
+
+        if key not in canonical:
+            # Initialize occurrences list if not present
+            if not hasattr(f, "occurrences") or f.occurrences is None:
+                f.occurrences = []
+            canonical[key] = f
+            seen_locations[key] = {loc_tuple}
+        else:
+            primary = canonical[key]
+            if not hasattr(primary, "occurrences") or primary.occurrences is None:
+                primary.occurrences = []
+
+            # Add this location if not already recorded
+            if loc_tuple not in seen_locations[key]:
+                seen_locations[key].add(loc_tuple)
+                primary.occurrences.append({
+                    "file_path": f.file_path,
+                    "line_number": f.line_number,
+                    "column": f.column,
+                    "end_column": f.end_column,
+                    "line_snippet": f.line_snippet,
+                })
+
+            # Add any secondary occurrences already tracked on f
+            for occ in getattr(f, "occurrences", []):
+                occ_loc = (
+                    occ.get("file_path", "").replace("\\", "/"),
+                    occ.get("line_number", 1),
+                    occ.get("column"),
+                )
+                if occ_loc not in seen_locations[key]:
+                    seen_locations[key].add(occ_loc)
+                    primary.occurrences.append(occ)
+
+            # Merge detection signals
+            for sig in getattr(f, "detection_signals", []):
+                if sig not in primary.detection_signals:
+                    primary.detection_signals.append(sig)
+
+            # Adopt higher severity if secondary occurrence is more severe
+            if SEVERITY_ORDER.get(f.severity, 0) > SEVERITY_ORDER.get(primary.severity, 0):
+                primary.severity = f.severity
+
+    return list(canonical.values())
 
 
 def scan_text(
@@ -354,7 +430,7 @@ def scan_text(
     if suppression_mgr is None:
         suppression_mgr = parse_suppressions_from_lines(lines)
 
-    return scan_lines(
+    findings = scan_lines(
         lines=lines,
         file_path_str=file_path_str,
         patterns=patterns,
@@ -363,6 +439,7 @@ def scan_text(
         stats=stats,
         full_text=text,
     )
+    return deduplicate_findings(findings)
 
 
 def load_root_gitignore(base_dir: Path) -> Optional[pathspec.PathSpec]:
@@ -507,7 +584,7 @@ def scan_files(
             total_hint = len(files)
             progress_callback(rel_path, current_count, total_hint)
 
-    return all_findings
+    return deduplicate_findings(all_findings)
 
 
 def scan_directory(
@@ -653,7 +730,7 @@ def scan_directory(
                 current_count = stats.get("files_scanned", 0) if stats else len(all_findings)
                 progress_callback(rel_path, current_count, None)
 
-    return all_findings
+    return deduplicate_findings(all_findings)
 
 
 def scan_staged(
@@ -712,4 +789,4 @@ def scan_staged(
             # Handle decoding or git errors gracefully for individual files
             continue
 
-    return all_findings
+    return deduplicate_findings(all_findings)

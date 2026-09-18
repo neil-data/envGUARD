@@ -50,14 +50,16 @@ SIGNAL_WEIGHTS = {
     "known_pattern_match": 100,
     "private_key_header": 100,
     "valid_jwt": 80,
-    "high_entropy": 30,
-    "credential_variable_name": 25,
-    "token_like_length": 20,
+    "high_entropy": 20,
+    "credential_variable_name": 30,
+    "credential_context": 30,
+    "token_like_length": 10,
+    "symbol_diversity_randomness": 20,
     "provider_prefix": 15,
-    "non_placeholder_value": 10,
+    "non_placeholder_value": 5,
     "placeholder_value": -100,
     "uuid_hash_exclusion": -200,
-    "non_secret_context": -50,
+    "non_secret_context": -60,
 }
 
 SEVERITY_ORDER = {"IGNORE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
@@ -95,7 +97,9 @@ def score_candidate(candidate: DetectionCandidate) -> ScoredResult:
     if candidate.original_severity:
         final_severity = candidate.original_severity.upper()
     elif candidate.rule_id == "generic-high-entropy-secret":
-        final_severity = "MEDIUM"
+        # If the candidate was marked IGNORE by classifier / context filters, preserve IGNORE
+        if computed_severity != "IGNORE":
+            final_severity = "MEDIUM"
 
     return ScoredResult(
         candidate=candidate,

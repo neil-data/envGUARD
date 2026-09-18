@@ -21,8 +21,8 @@ def test_score_candidate_signal_weights():
         original_severity=None,
     )
     res = score_candidate(cand)
-    # Weights: high_entropy (30) + credential_variable_name (25) + token_like_length (20) = 75
-    assert res.total_score == 75
+    # Weights: high_entropy (20) + credential_variable_name (30) + token_like_length (10) = 60
+    assert res.total_score == 60
     assert res.severity == "MEDIUM"
     assert "high_entropy" in res.signals
 

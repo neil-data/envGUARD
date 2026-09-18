@@ -165,6 +165,40 @@ def render_ci_summary(
     write_output(summary_text, output_path)
 
 
+def format_finding_dict(f: ScanFinding) -> Dict[str, Any]:
+    """Serialize a ScanFinding to a dictionary, including occurrences if present."""
+    d: Dict[str, Any] = {
+        "rule_id": f.rule_id,
+        "rule_name": f.rule_name,
+        "severity": f.severity,
+        "file": f.file_path.replace("\\", "/"),
+        "line": f.line_number,
+        "masked_value": f.masked_value,
+        "fingerprint": f.fingerprint,
+    }
+    if getattr(f, "entropy", None) is not None:
+        d["entropy"] = f.entropy
+    if getattr(f, "provider", None):
+        d["provider"] = f.provider
+    if getattr(f, "detection_signals", None):
+        d["detection_signals"] = f.detection_signals
+    if getattr(f, "repository", None):
+        d["repository"] = f.repository
+    if getattr(f, "blocked_by", None):
+        d["blocked_by"] = f.blocked_by
+    if getattr(f, "occurrences", None):
+        d["occurrences"] = [
+            {
+                "file": occ.get("file_path", "").replace("\\", "/"),
+                "line": occ.get("line_number"),
+                "column": occ.get("column"),
+                "end_column": occ.get("end_column"),
+            }
+            for occ in f.occurrences
+        ]
+    return d
+
+
 def render_scan_json(
     findings: List[ScanFinding],
     command: str = "scan",
@@ -192,25 +226,7 @@ def render_scan_json(
             "total": len(findings),
             "baseline_suppressed": suppressed_count,
         },
-        "findings": [
-            {
-                **{
-                    "rule_id": f.rule_id,
-                    "rule_name": f.rule_name,
-                    "severity": f.severity,
-                    "file": f.file_path.replace("\\", "/"),
-                    "line": f.line_number,
-                    "masked_value": f.masked_value,
-                    "fingerprint": f.fingerprint,
-                },
-                **({"entropy": f.entropy} if getattr(f, "entropy", None) is not None else {}),
-                **({"provider": f.provider} if getattr(f, "provider", None) else {}),
-                **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
-                **({"repository": f.repository} if getattr(f, "repository", None) else {}),
-                **({"blocked_by": f.blocked_by} if getattr(f, "blocked_by", None) else {}),
-            }
-            for f in findings
-        ],
+        "findings": [format_finding_dict(f) for f in findings],
     }
     print_json(data, output_path=output_path)
 
@@ -249,6 +265,16 @@ def render_ide_json(
                 "fingerprint": f.fingerprint,
                 "masked_value": f.masked_value,
                 "blocked_by": getattr(f, "blocked_by", None),
+                **({"occurrences": [
+                    {
+                        "file": occ.get("file_path", "").replace("\\", "/"),
+                        "line": max(1, occ.get("line_number", 1)),
+                        "column": max(1, occ.get("column", 1) or 1),
+                        "end_line": max(1, occ.get("line_number", 1)),
+                        "end_column": max(1, occ.get("end_column", 1) or 1),
+                    }
+                    for occ in f.occurrences
+                ]} if getattr(f, "occurrences", None) else {}),
             }
             for f in findings
         ],
@@ -299,25 +325,7 @@ def render_check_json(
             "low": low,
             "total": len(all_findings),
         },
-        "findings": [
-            {
-                **{
-                    "rule_id": f.rule_id,
-                    "rule_name": f.rule_name,
-                    "severity": f.severity,
-                    "file": f.file_path.replace("\\", "/"),
-                    "line": f.line_number,
-                    "masked_value": f.masked_value,
-                    "fingerprint": f.fingerprint,
-                },
-                **({"entropy": f.entropy} if getattr(f, "entropy", None) is not None else {}),
-                **({"provider": f.provider} if getattr(f, "provider", None) else {}),
-                **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
-                **({"repository": f.repository} if getattr(f, "repository", None) else {}),
-                **({"blocked_by": f.blocked_by} if getattr(f, "blocked_by", None) else {}),
-            }
-            for f in all_findings
-        ],
+        "findings": [format_finding_dict(f) for f in all_findings],
     }
     print_json(data, output_path=output_path)
 
@@ -365,25 +373,7 @@ def render_pre_push_json(
             "low": low_count,
             "total": len(all_findings),
         },
-        "findings": [
-            {
-                **{
-                    "rule_id": f.rule_id,
-                    "rule_name": f.rule_name,
-                    "severity": f.severity,
-                    "file": f.file_path.replace("\\", "/"),
-                    "line": f.line_number,
-                    "masked_value": f.masked_value,
-                    "fingerprint": f.fingerprint,
-                },
-                **({"entropy": f.entropy} if getattr(f, "entropy", None) is not None else {}),
-                **({"provider": f.provider} if getattr(f, "provider", None) else {}),
-                **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
-                **({"repository": f.repository} if getattr(f, "repository", None) else {}),
-                **({"blocked_by": f.blocked_by} if getattr(f, "blocked_by", None) else {}),
-            }
-            for f in all_findings
-        ],
+        "findings": [format_finding_dict(f) for f in all_findings],
     }
     print_json(data, output_path=output_path)
 
@@ -657,10 +647,12 @@ def print_scan_findings(
         ]
         if has_repos:
             row.append(getattr(f, "repository", None) or "-")
+        occ_count = len(getattr(f, "occurrences", []))
+        line_str = f"{f.line_number} [dim](+{occ_count} occurrences)[/dim]" if occ_count > 0 else str(f.line_number)
         row.extend([
             f.rule_id,
             f.file_path,
-            str(f.line_number),
+            line_str,
             f.masked_value,
         ])
         if has_signals:
@@ -750,11 +742,13 @@ def print_blocked_commit(findings: List[ScanFinding]) -> None:
         table.add_column("Blocked By", style="bold yellow")
 
     for f in findings:
+        occ_count = len(getattr(f, "occurrences", []))
+        line_str = f"{f.line_number} [dim](+{occ_count} occurrences)[/dim]" if occ_count > 0 else str(f.line_number)
         row = [
             format_severity(f.severity),
             f.rule_id,
             f.file_path,
-            str(f.line_number),
+            line_str,
             f.masked_value,
             format_signals(f),
         ]
@@ -1439,41 +1433,16 @@ def render_multi_repo_json(result: MultiRepoScanResult, output_path: Optional[Pa
                 "error": r.error,
                 "findings": [
                     {
-                        "rule_id": f.rule_id,
-                        "rule_name": f.rule_name,
-                        "severity": f.severity,
-                        "file": f.file_path.replace("\\", "/"),
-                        "line": f.line_number,
-                        "masked_value": f.masked_value,
-                        "fingerprint": f.fingerprint,
+                        **format_finding_dict(f),
                         "repository": r.name,
                         "blocked_by": f.blocked_by,
-                        **({"entropy": f.entropy} if getattr(f, "entropy", None) is not None else {}),
-                        **({"provider": f.provider} if getattr(f, "provider", None) else {}),
-                        **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
                     }
                     for f in r.findings
                 ],
             }
             for r in result.repositories
         ],
-        "findings": [
-            {
-                "rule_id": f.rule_id,
-                "rule_name": f.rule_name,
-                "severity": f.severity,
-                "file": f.file_path.replace("\\", "/"),
-                "line": f.line_number,
-                "masked_value": f.masked_value,
-                "fingerprint": f.fingerprint,
-                "repository": getattr(f, "repository", None),
-                "blocked_by": getattr(f, "blocked_by", None),
-                **({"entropy": f.entropy} if getattr(f, "entropy", None) is not None else {}),
-                **({"provider": f.provider} if getattr(f, "provider", None) else {}),
-                **({"detection_signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
-            }
-            for f in result.all_findings
-        ],
+        "findings": [format_finding_dict(f) for f in result.all_findings],
     }
     print_json(data, output_path=output_path)
 
@@ -1823,9 +1792,10 @@ def print_audit_summary(data: Any) -> None:
     trend_table.add_column("Status / Trend", style="bold")
 
     trend_table.add_row("Baseline Snapshot", str(trend.baseline_count), "Found" if trend.baseline_exists else "None")
+    trend_table.add_row("Baseline Suppressed (Debt)", str(len(trend.persistent_findings)), "[bold yellow]Persistent debt[/bold yellow]" if trend.persistent_findings else "[bold green]0 debt[/bold green]")
     trend_table.add_row("Current Findings", str(trend.current_count), f"[bold red]+{len(trend.new_findings)} new[/bold red]" if trend.new_findings else "[bold green]0 new[/bold green]")
-    trend_table.add_row("Remediated Secrets", str(trend.resolved_count), f"[bold green]{trend.remediation_rate_pct}% resolved[/bold green]")
-    trend_table.add_row("Overall Trajectory", trend.trend_direction, f"[bold green]IMPROVING[/bold green]" if trend.trend_direction == "IMPROVING" else f"[bold]{trend.trend_direction}[/bold]")
+    trend_table.add_row("Remediated Secrets", str(trend.resolved_count), f"[bold green]{trend.remediation_rate_pct}% resolved[/bold green]" if trend.resolved_count > 0 else f"[yellow]{trend.remediation_rate_pct}% resolved[/yellow]")
+    trend_table.add_row("Overall Trajectory", trend.trend_direction, f"[bold green]IMPROVING[/bold green]" if trend.trend_direction == "IMPROVING" else (f"[bold red]DEGRADING[/bold red]" if trend.trend_direction == "DEGRADING" else f"[bold]{trend.trend_direction}[/bold]"))
 
     console.print(trend_table)
     console.print()

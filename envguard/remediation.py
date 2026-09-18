@@ -189,6 +189,70 @@ def inspect_python_assignment(file_path: Path, line_number: int, raw_secret: str
     return True, var_name, None, needs_import_os
 
 
+def validate_remediation_candidate(
+    finding: ScanFinding,
+    var_name: str,
+    raw_secret: str,
+    file_path: Path,
+) -> Tuple[bool, Optional[str]]:
+    """Perform independent validation on remediation candidates before code transformation.
+
+    Rejects non-secret variables, non-secret value patterns, alphabets, paths, and low-confidence
+    or ambiguous targets to prevent polluting .env/.env.example and modifying harmless code.
+    """
+    from envguard.detectors.context_detector import NON_SECRET_KEYWORDS, analyze_context
+    from envguard.detectors.entropy_detector import (
+        is_alphabet_or_charset,
+        is_integrity_or_hash,
+        is_windows_path,
+    )
+
+    var_lower = var_name.lower().strip()
+
+    # 1. Reject explicit non-secret keywords or substrings in variable name
+    for nsk in NON_SECRET_KEYWORDS:
+        if nsk in var_lower:
+            return False, f"Variable '{var_name}' matches non-secret identifier pattern ('{nsk}'); automatic remediation refused."
+
+    # Check context detector analysis
+    ctx_res = analyze_context(var_name, None)
+    if ctx_res.is_non_secret_context:
+        return False, f"Variable '{var_name}' represents non-secret context; automatic remediation refused."
+
+    # 2. Reject values that are clearly not secrets
+    if is_alphabet_or_charset(raw_secret):
+        return False, "Value represents an alphabet or character set; automatic remediation refused."
+
+    if is_windows_path(raw_secret) or raw_secret.startswith(("\\\\", "C:\\", "D:\\", "/usr/", "/etc/", "/var/", "/home/")):
+        return False, "Value represents a filesystem path; automatic remediation refused."
+
+    if is_integrity_or_hash(raw_secret):
+        return False, "Value represents an integrity checksum or hash digest; automatic remediation refused."
+
+    # Reject URLs, protocols, or schemas
+    if re.match(r"^(https?|ftp|file|ssh|urn)://", raw_secret, re.IGNORECASE):
+        return False, "Value represents a URL or URI scheme; automatic remediation refused."
+
+    # Reject known dummy/placeholder words
+    if raw_secret.lower() in ("placeholder", "changeme", "example", "dummy", "test", "todo", "sample"):
+        return False, "Value is a known placeholder; automatic remediation refused."
+
+    # 3. For generic rules, require positive credential context in the variable name
+    generic_rules = ("generic-high-entropy-secret", "generic-secret", "generic-api-key", "high-entropy-string")
+    if finding.rule_id in generic_rules:
+        cred_keywords = (
+            "secret", "token", "password", "passwd", "pwd", "auth", "api_key", "apikey",
+            "access_key", "accesskey", "private_key", "privkey", "credential", "bearer",
+            "client_secret", "signature", "signing_key", "session_secret", "encryption_key",
+            "key",
+        )
+        has_cred_name = any(kw in var_lower for kw in cred_keywords)
+        if not has_cred_name:
+            return False, f"Variable '{var_name}' lacks explicit credential naming for generic rule '{finding.rule_id}'; automatic remediation refused."
+
+    return True, None
+
+
 def generate_diff(original: str, modified: str, filename: str) -> str:
     """Generate unified diff string between original and modified content."""
     orig_lines = original.splitlines(keepends=True)
@@ -268,6 +332,31 @@ def create_remediation_plan(
                     masked_secret=f.masked_value,
                     is_safe=False,
                     skip_reason=skip_reason or "Unsafe assignment construct",
+                )
+            )
+            continue
+
+        # Perform independent remediation safety validation
+        cand_safe, cand_reason = validate_remediation_candidate(
+            finding=f,
+            var_name=var_name,
+            raw_secret=f.raw_value,
+            file_path=file_path,
+        )
+        if not cand_safe:
+            plan.actions.append(
+                RemediationAction(
+                    file_path=file_path,
+                    line_number=f.line_number,
+                    rule_id=f.rule_id,
+                    rule_name=f.rule_name,
+                    original_line=f.line_snippet,
+                    replacement_line="",
+                    env_var_name="",
+                    raw_secret=f.raw_value,
+                    masked_secret=f.masked_value,
+                    is_safe=False,
+                    skip_reason=cand_reason or "Non-secret candidate or unsafe context; manual remediation required.",
                 )
             )
             continue

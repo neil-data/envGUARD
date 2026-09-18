@@ -30,6 +30,9 @@ from envguard.patterns import load_default_patterns
 KNOWN_SCAN_KEYS = {"max_file_size_mb", "block_on", "respect_gitignore"}
 KNOWN_RULES_KEYS = {"disabled", "disable", "severity_overrides", "locked_disabled_rules"}
 KNOWN_ADVANCED_KEYS = {
+    "entropy",
+    "jwt",
+    "context_analysis",
     "entropy_threshold",
     "detect_jwt",
     "high_entropy_min_length",
@@ -41,8 +44,10 @@ KNOWN_CI_KEYS = {
     "fail_on_warning",
     "emit_annotations",
     "step_summary",
+    "annotations",
+    "job_summary",
 }
-KNOWN_REPORTING_KEYS = {"format", "output"}
+KNOWN_REPORTING_KEYS = {"format", "output", "color", "show_fingerprints"}
 
 
 @dataclass
@@ -182,6 +187,14 @@ def lint_single_file(
     _check_subsection_keys(raw_yaml, "scan", KNOWN_SCAN_KEYS, fname, diagnostics)
     _check_subsection_keys(raw_yaml, "rules", KNOWN_RULES_KEYS, fname, diagnostics)
     _check_subsection_keys(raw_yaml, "advanced_detection", KNOWN_ADVANCED_KEYS, fname, diagnostics)
+    adv_dict = raw_yaml.get("advanced_detection")
+    if isinstance(adv_dict, dict):
+        if isinstance(adv_dict.get("entropy"), dict):
+            _check_subsection_keys(adv_dict, "entropy", {"enabled", "min_length", "threshold"}, fname, diagnostics)
+        if isinstance(adv_dict.get("jwt"), dict):
+            _check_subsection_keys(adv_dict, "jwt", {"enabled"}, fname, diagnostics)
+        if isinstance(adv_dict.get("context_analysis"), dict):
+            _check_subsection_keys(adv_dict, "context_analysis", {"enabled"}, fname, diagnostics)
     _check_subsection_keys(raw_yaml, "ci", KNOWN_CI_KEYS, fname, diagnostics)
     _check_subsection_keys(raw_yaml, "reporting", KNOWN_REPORTING_KEYS, fname, diagnostics)
 
@@ -191,7 +204,10 @@ def lint_single_file(
         parsed_config = load_raw_config_file(file_path)
         # Collect top-level unknown key warnings already detected by load_raw_config_file
         for w in parsed_config.warnings:
-            # Extract key name if possible
+            if "in rules.disabled" in w or "in rules.severity_overrides" in w:
+                continue
+            if "in reporting configuration" in w or "in ci configuration" in w or "in advanced_detection" in w:
+                continue
             match = re.search(r"Unknown top-level key '([^']+)'", w)
             key_name = match.group(1) if match else None
             diagnostics.append(

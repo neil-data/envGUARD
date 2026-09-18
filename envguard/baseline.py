@@ -62,12 +62,12 @@ def inspect_baseline(baseline_path: Path) -> Tuple[bool, int, Optional[str]]:
 
 
 def filter_baseline_findings(
-
     findings: List[ScanFinding],
     baseline_fingerprints: Set[str],
 ) -> Tuple[List[ScanFinding], List[ScanFinding]]:
     """Separate active findings from known baseline findings.
 
+    Supports both canonical fingerprints and legacy path-based fingerprints.
     Returns (new_findings, baseline_suppressed_findings).
     """
     if not baseline_fingerprints:
@@ -77,7 +77,29 @@ def filter_baseline_findings(
     suppressed: List[ScanFinding] = []
 
     for f in findings:
+        matched = False
         if f.fingerprint in baseline_fingerprints:
+            matched = True
+        else:
+            # Check legacy fingerprint for primary location
+            if hasattr(f, "rule_id") and hasattr(f, "file_path") and hasattr(f, "raw_value"):
+                from envguard.scanner import compute_legacy_fingerprint
+                legacy_fp = compute_legacy_fingerprint(f.rule_id, f.file_path, f.raw_value)
+                if legacy_fp in baseline_fingerprints:
+                    matched = True
+
+            # If not matched yet, check secondary occurrences against baseline fingerprints
+            if not matched:
+                for occ in getattr(f, "occurrences", []):
+                    occ_file = occ.get("file_path")
+                    if occ_file:
+                        from envguard.scanner import compute_legacy_fingerprint
+                        occ_legacy_fp = compute_legacy_fingerprint(f.rule_id, occ_file, f.raw_value)
+                        if occ_legacy_fp in baseline_fingerprints:
+                            matched = True
+                            break
+
+        if matched:
             suppressed.append(f)
         else:
             new_findings.append(f)
@@ -113,14 +135,21 @@ def create_baseline(
         if f.fingerprint in seen_fingerprints:
             continue
         seen_fingerprints.add(f.fingerprint)
-        baseline_entries.append(
-            {
-                "fingerprint": f.fingerprint,
-                "rule_id": f.rule_id,
-                "file": f.file_path.replace("\\", "/"),
-                "line": f.line_number,
-            }
-        )
+        entry: Dict[str, Any] = {
+            "fingerprint": f.fingerprint,
+            "rule_id": f.rule_id,
+            "file": f.file_path.replace("\\", "/"),
+            "line": f.line_number,
+        }
+        if getattr(f, "occurrences", None):
+            entry["occurrences"] = [
+                {
+                    "file": occ.get("file_path", "").replace("\\", "/"),
+                    "line": occ.get("line_number"),
+                }
+                for occ in f.occurrences
+            ]
+        baseline_entries.append(entry)
 
     payload = {
         "version": BASELINE_SCHEMA_VERSION,

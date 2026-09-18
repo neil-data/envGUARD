@@ -6,9 +6,9 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/badge/version-0.9.8-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
+[![Release](https://img.shields.io/badge/version-1.0.0-indigo.svg)](https://github.com/neil-data/envGUARD/releases)
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
-[![Tests](https://img.shields.io/badge/tests-233%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-passed-brightgreen.svg)](#testing)
 
 
 <p>
@@ -32,7 +32,7 @@
 
 Secret leaks into Git are one of the most common, preventable security incidents in software development — a misconfigured `.gitignore`, a key pasted into a tracked file, or a commit made before anyone double-checks what's staged. Existing scanners such as Gitleaks and TruffleHog are excellent, but they're built for CI pipelines and security teams, not the moment right before a developer runs `git commit` or `git push`.
 
-EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable. With v0.5.0, that same protection extended into CI/CD pipelines and pull requests. With v0.6.0, team-wide organization policies and multi-repository scanning brought enterprise-grade workflows while maintaining 100% local-first privacy. With v0.7.0, developer workflow integrations — including a native Git pre-push hook, a zero-dependency filesystem watcher, and editor-compatible diagnostic JSON — catch secrets even earlier in active developer workflows. With v0.7.5, a full Rich terminal overhaul introduces centralized UI theming, interactive scan progress bars, and a real-time live watch dashboard. With v0.8.0, safe, write-capable automated remediation (`envguard fix`) safely extracts hardcoded secrets to `.env` and `os.environ.get(...)` while recognizing cloud secrets managers 100% offline. With v0.8.7, remediation safety enhancements deliver UTF-8 BOM compatibility, automated `.gitignore` exclusion of `.env`, and safe scan target boundaries. With v0.9.0, EnvGuard advances from **catch → fix → prove** with configuration assurance (`envguard lint-config`), SOC 2 & ISO 27001 compliance control mappings, baseline debt velocity trends, and self-contained executive HTML/JSON audit reports (`envguard audit`). With v0.9.8, precision and quality improvements ensure safe remediation code and secrets manager lookups never re-trigger findings, baseline and configuration files are excluded by default, Python >= 3.10 diagnostics are strictly enforced, and CLI positional path arguments are universally supported.
+EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable. With v0.5.0, that same protection extended into CI/CD pipelines and pull requests. With v0.6.0, team-wide organization policies and multi-repository scanning brought enterprise-grade workflows while maintaining 100% local-first privacy. With v0.7.0, developer workflow integrations — including a native Git pre-push hook, a zero-dependency filesystem watcher, and editor-compatible diagnostic JSON — catch secrets even earlier in active developer workflows. With v0.7.5, a full Rich terminal overhaul introduces centralized UI theming, interactive scan progress bars, and a real-time live watch dashboard. With v0.8.0, safe, write-capable automated remediation (`envguard fix`) safely extracts hardcoded secrets to `.env` and `os.environ.get(...)` while recognizing cloud secrets managers 100% offline. With v0.8.7, remediation safety enhancements deliver UTF-8 BOM compatibility, automated `.gitignore` exclusion of `.env`, and safe scan target boundaries. With v0.9.0, EnvGuard advances from **catch → fix → prove** with configuration assurance (`envguard lint-config`), SOC 2 & ISO 27001 compliance control mappings, baseline debt velocity trends, and self-contained executive HTML/JSON audit reports (`envguard audit`). With v0.9.8, precision and quality improvements ensure safe remediation code and secrets manager lookups never re-trigger findings. With v0.9.9, precision and remediation safety enhancements eliminate generic high-entropy false positives on identifiers/paths/fixtures, deduplicate identical logical findings with full occurrence tracking, and independently guard remediation against non-secret variables and configuration pollution. With v0.9.10, remaining audit bugs are fixed: elimination of generic high-entropy false positives across all 9 non-secret categories, full alignment of `lint-config` with documented schema (`ci.annotations`, `ci.job_summary`, `reporting.color`, `reporting.show_fingerprints`, and `advanced_detection` sub-dictionaries), and truthful baseline audit metrics that track suppressed persistent debt separately from genuine remediations.
 
 ---
 
@@ -82,7 +82,7 @@ All secret detection, line-by-line streaming, SHA-256 baseline fingerprinting, a
 
 **Option 1 — From wheel**
 ```bash
-pip install dist/envguard-0.9.8-py3-none-any.whl
+pip install dist/envguard-1.0.0-py3-none-any.whl
 ```
 
 **Option 2 — Editable / developer mode**
@@ -95,7 +95,7 @@ pip install -e .
 Verify the install:
 ```bash
 envguard --version
-# EnvGuard version 0.9.8
+# EnvGuard version 1.0.0
 ```
 
 Works identically in cmd, PowerShell, and Unix shells.
@@ -838,8 +838,10 @@ tests/test_v090_audit.py::test_html_report_zero_plain_secrets PASSED
 | v0.7.5 | Full Rich Terminal UI Overhaul (Theme System, Progress Bars, Watch Live Dashboard, Syntax Highlighting) | Complete |
 | v0.8.0 | Automated Remediation & Secrets Manager Integration (`envguard fix`, AST Verification, Offline Secrets Manager) | Complete |
 | v0.9.0 | Compliance & Audit Reporting (`envguard audit`, `lint-config`, SOC 2/ISO 27001 Mapping, Trends) | Complete |
-| **v0.9.8** | **Precision & Scanner Quality Fixes (Safe Code Precision, Baseline Ignore, Doctor Floor >= 3.10, Positional Paths)** | **Current Release ✅** |
-| v1.0.0 | Stable production release | Target |
+| v0.9.8 | Precision & Scanner Quality Fixes (Safe Code Precision, Baseline Ignore, Doctor Floor >= 3.10, Positional Paths) | Complete |
+| v0.9.10 | Audit Bug Fixes (High-Entropy FP Elimination, Config Schema Validation, Truthful Baseline Debt Metrics) | Complete |
+| v0.9.11 | Generic High-Entropy Detection Redesign (Context-First Pipeline, Multi-Signal Scoring) | Complete |
+| **v1.0.0** | **Production Release (Stable CLI, Safe Remediation, SOC 2/ISO 27001, Stranger-Ready)** | **Current Release ✅** |
 
 
 ---

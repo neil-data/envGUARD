@@ -88,25 +88,48 @@ def generate_sarif(
         repo = getattr(f, "repository", None)
         uri_path = f"{repo}/{normalized_path.lstrip('./')}" if repo else normalized_path
 
+        locs: List[Dict[str, Any]] = [
+            {
+                "physicalLocation": {
+                    "artifactLocation": {
+                        "uri": uri_path,
+                        "uriBaseId": "%SRCROOT%",
+                    },
+                    "region": {
+                        "startLine": max(1, f.line_number),
+                        **({"startColumn": f.column} if getattr(f, "column", None) else {}),
+                        **({"endColumn": f.end_column} if getattr(f, "end_column", None) else {}),
+                    },
+                }
+            }
+        ]
+
+        for occ in getattr(f, "occurrences", []):
+            occ_path = occ.get("file_path", "").replace("\\", "/")
+            occ_uri = f"{repo}/{occ_path.lstrip('./')}" if repo else occ_path
+            locs.append(
+                {
+                    "physicalLocation": {
+                        "artifactLocation": {
+                            "uri": occ_uri,
+                            "uriBaseId": "%SRCROOT%",
+                        },
+                        "region": {
+                            "startLine": max(1, occ.get("line_number", 1)),
+                            **({"startColumn": occ.get("column")} if occ.get("column") else {}),
+                            **({"endColumn": occ.get("end_column")} if occ.get("end_column") else {}),
+                        },
+                    }
+                }
+            )
+
         result_entry: Dict[str, Any] = {
             "ruleId": f.rule_id,
             "level": level,
             "message": {
                 "text": safe_msg,
             },
-            "locations": [
-                {
-                    "physicalLocation": {
-                        "artifactLocation": {
-                            "uri": uri_path,
-                            "uriBaseId": "%SRCROOT%",
-                        },
-                        "region": {
-                            "startLine": max(1, f.line_number),
-                        },
-                    }
-                }
-            ],
+            "locations": locs,
             "properties": {
                 "maskedValue": f.masked_value,
                 "fingerprint": f.fingerprint,
@@ -115,6 +138,7 @@ def generate_sarif(
                 **({"signals": f.detection_signals} if getattr(f, "detection_signals", None) else {}),
                 **({"repository": repo} if repo else {}),
                 **({"blockedBy": f.blocked_by} if getattr(f, "blocked_by", None) else {}),
+                **({"occurrenceCount": 1 + len(getattr(f, "occurrences", []))} if getattr(f, "occurrences", None) else {}),
             },
         }
         results_list.append(result_entry)
