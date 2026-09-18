@@ -10,18 +10,20 @@
 [![Local Only](https://img.shields.io/badge/privacy-100%25%20local-success.svg)](#privacy-and-local-guarantees)
 [![Tests](https://img.shields.io/badge/tests-passed-brightgreen.svg)](#testing)
 
-
 <p>
   <a href="#why-envguard">Why EnvGuard</a> ·
   <a href="#key-features">Key Features</a> ·
-  <a href="#compliance--audit-reporting-v090">Compliance & Audit</a> ·
-  <a href="#configuration-linter-v090">Config Linter</a> ·
-  <a href="#remediation--secrets-manager-integration-v080">Remediation</a> ·
-  <a href="#terminal-ui--presentation-layer">Rich Terminal UI</a> ·
-  <a href="#developer-workflow-integration">Developer Workflows</a> ·
   <a href="#installation">Installation</a> ·
   <a href="#cli-commands">CLI Commands</a> ·
-  <a href="#roadmap">Roadmap</a>
+  <a href="#configuration">Configuration</a> ·
+  <a href="#organization-policy-envguard-orgyml">Organization Policy</a> ·
+  <a href="#automated-remediation--secrets-manager-integration-v080">Remediation</a> ·
+  <a href="#rich-terminal-ui-overhaul-v075">Rich Terminal UI</a> ·
+  <a href="#developer-workflow-integration-v070">Developer Workflows</a> ·
+  <a href="#cicd-integration">CI/CD</a> ·
+  <a href="#project-history">Project History</a> ·
+  <a href="#roadmap">Roadmap</a> ·
+  <a href="#contributing">Contributing</a>
 </p>
 
 </div>
@@ -32,7 +34,9 @@
 
 Secret leaks into Git are one of the most common, preventable security incidents in software development — a misconfigured `.gitignore`, a key pasted into a tracked file, or a commit made before anyone double-checks what's staged. Existing scanners such as Gitleaks and TruffleHog are excellent, but they're built for CI pipelines and security teams, not the moment right before a developer runs `git commit` or `git push`.
 
-EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable. With v0.5.0, that same protection extended into CI/CD pipelines and pull requests. With v0.6.0, team-wide organization policies and multi-repository scanning brought enterprise-grade workflows while maintaining 100% local-first privacy. With v0.7.0, developer workflow integrations — including a native Git pre-push hook, a zero-dependency filesystem watcher, and editor-compatible diagnostic JSON — catch secrets even earlier in active developer workflows. With v0.7.5, a full Rich terminal overhaul introduces centralized UI theming, interactive scan progress bars, and a real-time live watch dashboard. With v0.8.0, safe, write-capable automated remediation (`envguard fix`) safely extracts hardcoded secrets to `.env` and `os.environ.get(...)` while recognizing cloud secrets managers 100% offline. With v0.8.7, remediation safety enhancements deliver UTF-8 BOM compatibility, automated `.gitignore` exclusion of `.env`, and safe scan target boundaries. With v0.9.0, EnvGuard advances from **catch → fix → prove** with configuration assurance (`envguard lint-config`), SOC 2 & ISO 27001 compliance control mappings, baseline debt velocity trends, and self-contained executive HTML/JSON audit reports (`envguard audit`). With v0.9.8, precision and quality improvements ensure safe remediation code and secrets manager lookups never re-trigger findings. With v0.9.9, precision and remediation safety enhancements eliminate generic high-entropy false positives on identifiers/paths/fixtures, deduplicate identical logical findings with full occurrence tracking, and independently guard remediation against non-secret variables and configuration pollution. With v0.9.10, remaining audit bugs are fixed: elimination of generic high-entropy false positives across all 9 non-secret categories, full alignment of `lint-config` with documented schema (`ci.annotations`, `ci.job_summary`, `reporting.color`, `reporting.show_fingerprints`, and `advanced_detection` sub-dictionaries), and truthful baseline audit metrics that track suppressed persistent debt separately from genuine remediations.
+EnvGuard fills that gap: a single lightweight CLI, installed in seconds, that catches secrets before they ever leave your machine — and, uniquely, keeps `.env` and `.env.example` in sync so a team never loses time to a missing environment variable. It runs entirely locally, works the same way across pre-commit, pre-push, CI pipelines, and multi-repo team workflows, and now, as of v1.0.0, can safely remediate what it finds — not just report it.
+
+For the full story of how EnvGuard grew from a local secret scanner into a complete developer-security workflow, see [Project History](#project-history) below.
 
 ---
 
@@ -59,14 +63,13 @@ All secret detection, line-by-line streaming, SHA-256 baseline fingerprinting, a
 | **Compliance & Audit Reporting** (`v0.9.0`) | Dedicated `envguard audit` command producing executive security posture grades (`A+` to `F`), SOC 2 Type II (CC6.1, CC6.6, CC6.7) and ISO/IEC 27001 (A.5.15, A.8.12, A.8.24) control cross-references, baseline trend tracking, and self-contained print-ready HTML & JSON reports with strict masking guarantees. |
 | **Configuration Assurance Linter** (`v0.9.0`) | Dedicated `envguard lint-config` command validating field types, allowed values, typo'd keys, catalog rule IDs, conflicting settings, organization policy overrides, and Git `.env` tracking risks before scans run. |
 | **Historical Trend Engine** (`v0.9.0`) | Compares active scan findings against `.envguard-baseline.json` snapshots to quantify newly introduced drift, resolved secrets, persistent legacy debt, and net velocity rates without any external databases. |
-| **Remediation Safety Fixes** (`v0.8.7`) | Robust UTF-8 BOM parsing and preservation for PowerShell/Windows files, automated Git exclusion of `.env` via `.gitignore` with rollback safety, and complete exclusion of `.env` / `.env.example` from `fix` scan targets to eliminate no-op diffs and prevent file corruption. |
 | **Automated Remediation** (`v0.8.0`) | Safe, AST-verified remediation (`envguard fix`) for Python source files. Rewrites assignments to `os.environ.get()`, safely adds missing imports, populates `.env` while preserving placeholders in `.env.example`, requires clean git working trees, and defaults strictly to dry-run previews. |
 | **Secrets Manager Recognition** (`v0.8.0`) | 100% offline pattern recognition for AWS Secrets Manager, HashiCorp Vault, Azure Key Vault, Google Cloud Secret Manager, and environment lookups — skipping valid secrets manager references without network or cloud calls. |
-| **Rich Terminal UI Overhaul** (`v0.7.5`) | Centralized theme system (`envguard/ui/theme.py`), interactive scan progress bars (`rich.progress.Progress`), real-time live monitoring dashboard in `envguard watch` (`rich.live.Live`), syntax-highlighted code snippets with strict pre-highlight secret masking, and outermost clean Rich tracebacks. |
-| **Developer Workflow Integration** (`v0.7.0`) | Git pre-push hook (`envguard pre-push`, `envguard install-hook --type pre-push`) with full protocol conformance and ref-injection defenses; zero-dependency filesystem watch mode (`envguard watch`) with debounced scans; and editor-compatible IDE JSON format (`envguard scan --format ide`) with 1-based ranges. |
+| **Rich Terminal UI Overhaul** (`v0.7.5`) | Centralized theme system (`envguard/ui/theme.py`), interactive scan progress bars, real-time live monitoring dashboard in `envguard watch`, syntax-highlighted code snippets with strict pre-highlight secret masking, and clean Rich tracebacks for unexpected errors only. |
+| **Developer Workflow Integration** (`v0.7.0`) | Git pre-push hook (`envguard install-hook --type pre-push`) with full protocol conformance and ref-injection defenses; zero-dependency filesystem watch mode (`envguard watch`) with debounced scans; and editor-compatible IDE JSON format (`envguard scan --format ide`) with 1-based ranges. |
 | **Team & Multi-Repo Workflows** (`v0.6.0`) | Organization security floor (`.envguard-org.yml`), multi-repo scanning (`envguard scan --repos`), clear blocker attribution (`organization policy` vs `local policy`), tolerant error isolation, and CLI injection protection. |
 | **CI/CD & GitHub Ecosystem** (`v0.5.0`) | Dedicated `envguard ci` command, environment detection (GitHub Actions, GitLab CI, CircleCI, Azure Pipelines, Jenkins), changed-file diff scanning (`--changed`, `--base`), SARIF 2.1.0 generation, GitHub Actions annotations, and job summaries. |
-| **Advanced Detection Engine** (`v0.4.0`) | Multi-signal detection combining known patterns, Shannon entropy ($H \ge 4.0$), structural JWT validation, and context heuristics. |
+| **Advanced Detection Engine** (`v0.4.0`) | Multi-signal detection combining known patterns, Shannon entropy analysis, structural JWT validation, and context heuristics. |
 | **Pre-Commit Gate** (`envguard check`) | Inspects only staged Git index content (`git show :path`), blocking risky commits before credentials touch Git history. |
 | **Directory Scanner** (`envguard scan`) | Line-by-line streaming scan with changed-file support (`--changed`, `--base`), multi-repo support (`--repos`), file output (`--output`), respecting `.gitignore`, `.envguardignore`, and configuration exclusions. |
 | **Environment Drift Gate** (`envguard diff`) | Compares `.env` against `.env.example` by key only, flagging missing or stale variables without ever reading secret values. |
@@ -152,20 +155,16 @@ envguard scan --path ./src
 envguard scan --changed
 envguard scan --changed --base origin/main
 
-# Multi-repository scanning (new in v0.6.0)
+# Multi-repository scanning
 envguard scan --repos ./backend,./frontend,./microservice-a
 envguard scan --repos ./backend --repos ./frontend --format json
 
-# Output formats: text, json, sarif, or ide (new in v0.7.0)
+# Output formats: text, json, sarif, or ide
 envguard scan --format json
 envguard scan --format ide
 envguard scan --format sarif --output results.sarif
 envguard scan --verbose
 ```
-
-<p align="center">
-  <img src="docs/images/scan_progress.png" alt="EnvGuard Real-Time Scan Progress Bar" width="850" />
-</p>
 
 #### Scan Complete Output
 ```text
@@ -188,7 +187,7 @@ Breakdown: 1 HIGH  •  1 MEDIUM  •  0 LOW
 
 ---
 
-### 3. `envguard ci` (new in v0.5.0)
+### 3. `envguard ci`
 Automated CI/CD security gate designed for pipelines and pull requests.
 ```bash
 # Scan changed files against the default branch (main/master)
@@ -282,7 +281,7 @@ Installs or safely appends the EnvGuard safety gate into `.git/hooks/pre-commit`
 envguard install-hook
 envguard install-hook --type pre-commit
 
-# Install pre-push hook (new in v0.7.0)
+# Install pre-push hook
 envguard install-hook --type pre-push
 ```
 - Clear boundary markers (`# BEGIN ENVGUARD HOOK ... # END ENVGUARD HOOK`)
@@ -291,7 +290,7 @@ envguard install-hook --type pre-push
 
 ---
 
-### 6b. `envguard pre-push` (new in v0.7.0)
+### 6b. `envguard pre-push`
 Scans outgoing commits before pushing to a remote repository. Invoked automatically by Git's `pre-push` hook or manually for pre-flight testing.
 ```bash
 # Manual check of outgoing commits
@@ -306,7 +305,7 @@ envguard pre-push origin --format json
 
 ---
 
-### 6c. `envguard watch` (new in v0.7.0)
+### 6c. `envguard watch`
 Runs a zero-dependency filesystem watcher that continuously monitors files and triggers debounced scans on save.
 ```bash
 # Watch current working directory
@@ -322,7 +321,7 @@ envguard watch ./src --debounce 0.5
 
 ---
 
-### 6d. `envguard fix` (new in v0.8.0)
+### 6d. `envguard fix`
 Safely remediates hardcoded secrets in Python source and `.env` files.
 ```bash
 # Preview proposed changes (dry-run mode, no files touched)
@@ -342,11 +341,12 @@ envguard fix --format json
 - **AST Verification**: Inspects AST nodes to guarantee simple assignments only; multiline, f-strings, and complex expressions are safely left for manual review.
 - **Environment Synchronization**: Moves secrets into `.env` and automatically appends placeholders (`"your-secret-key-here"`) to `.env.example` — plaintext secrets are never written to example files.
 - **Safe Import Injection**: Injects `import os` directly after module docstrings or top-level comments if missing.
+- **Automatic Git Exclusion**: Ensures `.env` is excluded via `.gitignore` before or immediately after writing it, so a freshly extracted secret is never one `git add .` away from being committed.
 - **Offline Secrets Manager Recognition**: Recognizes AWS Secrets Manager, HashiCorp Vault, Azure Key Vault, and GCP Secret Manager lookups without any network calls.
 
 ---
 
-### 6e. `envguard lint-config` (new in v0.9.0)
+### 6e. `envguard lint-config`
 Validates EnvGuard configuration files and Git safety controls.
 ```bash
 # Lint current repository configuration and Git safety
@@ -367,7 +367,7 @@ envguard lint-config --format json --output lint-report.json
 
 ---
 
-### 6f. `envguard audit` (new in v0.9.0)
+### 6f. `envguard audit`
 Generates executive compliance and historical audit reports.
 ```bash
 # Print executive terminal audit summary
@@ -384,7 +384,7 @@ envguard audit --baseline custom-baseline.json
 ```
 - **Executive Security Posture Score**: Computes a clear letter grade (`A+` through `F`) evaluating credential findings and configuration health.
 - **Compliance Framework Alignment**: Cross-references findings against **SOC 2 Type II** (`CC6.1`, `CC6.6`, `CC6.7`) and **ISO/IEC 27001:2022** (`A.5.15`, `A.8.12`, `A.8.24`) controls.
-- **Historical Debt Velocity**: Quantifies newly introduced drift, remediated secrets, and persistent debt against baseline snapshots.
+- **Historical Debt Tracking**: Distinguishes newly introduced drift, genuinely resolved secrets, and findings that remain suppressed in the baseline — a suppressed finding is reported as *persistent legacy debt*, not as proof of remediation.
 - **Self-Contained Offline HTML**: Zero external scripts, stylesheets, or CDN fonts. Fully styled with modern dark mode and print-optimized `@media print` rules for instant PDF export.
 - **Strict Masking Guarantee**: Plaintext secrets are never rendered into HTML or JSON audit exports.
 
@@ -396,7 +396,7 @@ Captures all existing repository findings into `.envguard-baseline.json`.
 envguard baseline create
 envguard baseline create --overwrite
 ```
-Computes in-memory SHA-256 fingerprints. Subsequent scans suppress baseline findings, allowing adoption on legacy codebases without blocking current work.
+Computes in-memory SHA-256 fingerprints. Subsequent scans suppress baseline findings, allowing adoption on legacy codebases without blocking current work. A baseline suppresses re-reporting of a known finding — it is a record of what's been acknowledged, not evidence that a secret was rotated or removed.
 
 ---
 
@@ -452,10 +452,6 @@ Supported comment formats: `#` (Python, Bash, YAML), `//` (JS, TS, Go, Java, C++
 ## Interactive Console
 
 Run `envguard menu` (or simply `envguard`) for the interactive console, or `envguard ui` to open it in a dedicated window:
-
-<p align="center">
-  <img src="docs/images/interactive_menu.png" alt="EnvGuard Interactive Security Console" width="850" />
-</p>
 
 ```text
 ┌─────────────────────────────────────────────────────────┐
@@ -516,7 +512,7 @@ placeholders:
   - my_dummy_api_key           # Whitelisted non-secret placeholders
   - test_mock_token
 
-# Advanced Multi-Signal Detection (v0.4.0)
+# Advanced Multi-Signal Detection
 advanced_detection:
   entropy:
     enabled: true              # Shannon entropy analysis
@@ -531,7 +527,7 @@ reporting:
   color: true
   show_fingerprints: false
 
-# CI/CD Configuration (v0.5.0)
+# CI/CD Configuration
 ci:
   changed_files_only: true     # Only scan files changed relative to base ref
   base_branch: null            # Auto-detect default branch (main/master) or specify ref
@@ -539,13 +535,13 @@ ci:
   job_summary: true            # Append Markdown summary to $GITHUB_STEP_SUMMARY
 ```
 
-> **Advanced Detection Engine (v0.4.0):** Combines pattern regexes, Shannon entropy calculations, structural JWT header decoding, and surrounding variable context into a centralized multi-signal scoring system. Known regex rules preserve their configured severity by design. UUIDs, Git hashes, SHA-256 digests, version numbers, and placeholders are excluded to minimize false positives. Configuration supports strict boundary validation on all fields.
+> **Advanced Detection Engine:** Combines pattern regexes, Shannon entropy calculations, structural JWT header decoding, and surrounding variable context into a centralized multi-signal scoring system. Known regex rules preserve their configured severity by design. UUIDs, Git hashes, SHA-256 digests, version numbers, file paths, and placeholders are excluded to minimize false positives. Configuration supports strict boundary validation on all fields — run `envguard lint-config` at any time to check `.envguard.yml` against the current schema before relying on it.
 
 ---
 
 ## Organization Policy (`.envguard-org.yml`)
 
-EnvGuard v0.6.0 introduces support for `.envguard-org.yml` (or `.envguard-org.yaml`) committed alongside `.envguard.yml`.
+EnvGuard supports `.envguard-org.yml` (or `.envguard-org.yaml`) committed alongside `.envguard.yml`.
 
 ### Hybrid Policy Model & Fail-Stop Security Floor
 The organization policy establishes a non-negotiable **security floor** that individual developer or local configurations cannot weaken:
@@ -580,7 +576,7 @@ The organization policy establishes a non-negotiable **security floor** that ind
 | `slack-token` | Slack Token | HIGH | Slack bot, app, or user tokens (`xoxb-...`) |
 | `discord-token` | Discord Bot Token | MEDIUM | Discord bot or webhook token assignment |
 | `jwt-token` | JSON Web Token (JWT) | HIGH | Structural 3-segment Base64URL JWT verification |
-| `generic-high-entropy-secret` | High Entropy Secret | MEDIUM | Shannon entropy analysis ($H \ge 4.0$) in credential context |
+| `generic-high-entropy-secret` | High Entropy Secret | MEDIUM | Shannon entropy analysis in credential context, with multi-signal false-positive filtering |
 | `pem-private-key` | Private Key | HIGH | OpenSSL / PEM private key header |
 | `api-key-assignment` | API Key Assignment | MEDIUM | Assignments containing `API_KEY` |
 | `secret-assignment` | Secret Assignment | MEDIUM | Assignments containing `SECRET` |
@@ -602,20 +598,23 @@ The organization policy establishes a non-negotiable **security floor** that ind
 | `2` | Runtime / config error | Invalid `.envguard.yml`, missing required file, Git error |
 | `3` | Invalid CLI usage | Unknown flags, missing required arguments, bad options |
 
+---
+
 ## Automated Remediation & Secrets Manager Integration (v0.8.0)
 
-EnvGuard v0.8.0 is the first write-capable release, prioritizing **safety over automation**:
+EnvGuard's first write-capable release, built around **safety over automation**:
 
-### 1. Safe, Reversible Code Remediation (`envguard fix`)
+### Safe, Reversible Code Remediation (`envguard fix`)
 
 - **Strict Dry-Run Default**: By default, `envguard fix` runs in preview mode without touching any files. Passing `--apply` is strictly required to write changes to disk.
 - **Git Working Tree Cleanliness**: Refuses to run if uncommitted Git changes exist, preventing accidental modification of dirty states (overridable with `--allow-dirty`).
 - **AST-Verified Safety Gate**: Uses Python's abstract syntax tree (`ast`) to ensure only simple, unambiguous assignments are rewritten. Unsafe constructs (multiline values, dict literals, f-strings, complex function calls) are safely flagged as requiring manual remediation.
-- **Environment Synchronization**: Extracted secrets are appended to `.env` if not already present. Concurrently, a placeholder entry (`"your-secret-key-here"`) is appended to `.env.example` — guaranteeing plaintext secrets are never written to version-controlled example files.
+- **Environment Synchronization**: Extracted secrets are appended to `.env` if not already present. Concurrently, a placeholder entry is appended to `.env.example` — guaranteeing plaintext secrets are never written to version-controlled example files.
 - **Safe Import Injection**: Injects `import os` directly after module-level docstrings and initial comments if not already imported.
+- **Automatic `.gitignore` Protection**: Ensures `.env` is excluded from Git before leaving a real secret sitting in an untracked, unprotected file.
 - **Fail-Safe Atomic Writes**: Modifications use atomic write operations with complete in-memory rollback if any file operation fails.
 
-### 2. Secrets Manager Offline Recognition
+### Secrets Manager Offline Recognition
 
 EnvGuard recognizes enterprise secrets manager patterns and environment lookups 100% offline with zero cloud SDK calls, zero API credentials, and zero network calls:
 - **AWS Secrets Manager**: `boto3.client("secretsmanager")`, `get_secret_value`
@@ -630,34 +629,31 @@ Valid secrets manager lookups are recognized and skipped during remediation.
 
 ## Rich Terminal UI Overhaul (v0.7.5)
 
-EnvGuard v0.7.5 overhauls the terminal user interface using Rich while keeping all underlying detection, Git handling, and output contracts untouched:
+A full terminal UI overhaul built on Rich, while keeping all underlying detection, Git handling, and output contracts untouched:
 
-- **Centralized UI Theme (`envguard.ui.theme`)**: Single source of truth for severity badges (`HIGH`, `MEDIUM`, `LOW`), status badges (`PASS`, `WARNING`, `ERROR`, `BLOCKED`, `CLEAN`, `CRITICAL`), standardized panels, and tables.
-- **Interactive Scan Progress**: Uses `rich.progress.Progress` for responsive progress tracking in terminal sessions. Automatically and strictly suppressed in CI environments, non-TTY outputs, and machine-readable formats (`--format json`, `--format sarif`, `--format ide`).
-- **Watch Live Monitoring Dashboard**: Upgrades `envguard watch` to use `rich.live.Live` with a compact status panel displaying directory, tracked count, status, last checked time, and recent activity, alongside graceful `Ctrl+C` exit without tracebacks.
-- **Syntax Highlighting with Pre-Masking Security**: Code snippets are rendered with syntax highlighting using `rich.syntax.Syntax`. Plaintext secrets are strictly masked *prior* to reaching the syntax lexer, guaranteeing raw secrets never leak into AST or terminal buffers.
-- **Clean Exception Handling**: Known configuration, Git, and scanning errors are presented in clear Rich panels, while unexpected exceptions are formatted via `rich.traceback`.
+- **Centralized UI Theme (`envguard.ui.theme`)**: Single source of truth for severity badges (`HIGH`, `MEDIUM`, `LOW`), status badges (`PASS`, `WARNING`, `ERROR`, `BLOCKED`, `CLEAN`, `CRITICAL`), standardized panels, and tables — used consistently by every command.
+- **Interactive Scan Progress**: Responsive progress tracking in interactive terminal sessions, automatically and strictly suppressed in CI environments, non-TTY outputs, and machine-readable formats (`--format json`, `--format sarif`, `--format ide`).
+- **Watch Live Monitoring Dashboard**: `envguard watch` renders a live status panel showing directory, tracked file count, status, last checked time, and recent activity, with graceful `Ctrl+C` exit and no tracebacks.
+- **Syntax Highlighting with Pre-Masking Security**: Code snippets render with syntax highlighting. Plaintext secrets are strictly masked *prior* to reaching the syntax highlighter, guaranteeing raw secrets never leak into rendered output.
+- **Clean Exception Handling**: Known configuration, Git, and scanning errors are presented in clear panels, while genuinely unexpected exceptions are formatted via a readable Rich traceback rather than a raw Python stack dump.
 
 ---
 
 ## Developer Workflow Integration (v0.7.0)
 
-EnvGuard v0.7.0 integrates secret detection directly into active developer workflows — eliminating friction, catching leaks earlier, and avoiding post-push secret exposure incidents.
+Secret detection integrated directly into active developer workflows — catching leaks earlier and avoiding post-push secret exposure incidents.
 
-### 1. Production Git Pre-Push Hook
+### Production Git Pre-Push Hook
 
 While pre-commit catches uncommitted staged secrets, the **pre-push hook** serves as the definitive perimeter defense before commits leave the developer's machine and propagate to remotes.
 
 - **Full Git Protocol Compliance**: Intercepts Git's stdin stream (`<local-ref> <local-sha> <remote-ref> <remote-sha>`) across single or multiple ref pushes.
-- **Deep Commit Range Resolution**: Accurately computes commit ranges for branch updates (`remote_sha..local_sha`), new branches/tags (`--not --remotes`), and gracefully skips deletions.
+- **Deep Commit Range Resolution**: Accurately computes commit ranges for branch updates, new branches/tags, and gracefully skips deletions.
 - **True Git Object Inspection**: Scans files directly from Git's object store using `git diff-tree` and `git show <commit>:<path>`, catching intermediate leaks in commit chains even if undone in subsequent commits.
 - **Strict Injection Defenses**: Rejects any ref or SHA starting with `-` or containing null bytes, and terminates commands with `--`.
-- **Idempotent Installation**:
-  ```bash
-  envguard install-hook --type pre-push
-  ```
+- **Idempotent Installation**: `envguard install-hook --type pre-push`
 
-### 2. Zero-Dependency Filesystem Watcher
+### Zero-Dependency Filesystem Watcher
 
 Continuous monitoring detects secrets the moment files are saved to disk — without leaving the terminal:
 
@@ -665,31 +661,24 @@ Continuous monitoring detects secrets the moment files are saved to disk — wit
 - **Debounced Event Processing**: Configurable debounce interval (default `0.3s`) prevents scan storms and duplicate alerts during rapid saves.
 - **Intelligent Pruning**: Automatically prunes `.git`, `node_modules`, `venv`, `build`, `dist`, `__pycache__`, and respects `.gitignore` and `.envguardignore`.
 - **Single Detection Engine**: Reuses the core streaming engine for identical detection accuracy across all commands.
-  ```bash
-  # Watch current directory
-  envguard watch
 
-  # Watch specific path with custom debounce delay
-  envguard watch ./src --debounce 0.5
-  ```
+### Editor & IDE Diagnostic JSON (`--format ide`)
 
-### 3. Editor & IDE Diagnostic JSON (`--format ide`)
-
-EnvGuard v0.7.0 provides a versioned diagnostic schema (`schema_version: 1`) engineered for IDE extensions, Language Server Protocol (LSP) daemons, and editor diagnostics (VS Code, JetBrains, Neovim):
+A versioned diagnostic schema (`schema_version: 1`) engineered for IDE extensions, Language Server Protocol (LSP) daemons, and editor diagnostics (VS Code, JetBrains, Neovim):
 
 - **1-Based Character Coordinates**: Every finding includes deterministic `line`, `column`, `end_line`, and `end_column` properties, with safe fallback coordinates (`min: 1`).
 - **Guaranteed Privacy**: Plaintext secrets are strictly masked (`masked_value`) and never exposed in the JSON output.
-- **Standardized Schema**:
-  ```bash
-  envguard scan --format ide
-  envguard ci --format ide
-  ```
+
+```bash
+envguard scan --format ide
+envguard ci --format ide
+```
 
 ```json
 {
   "schema_version": 1,
   "tool": "envguard",
-  "version": "0.7.0",
+  "version": "1.0.0",
   "status": "failed",
   "total_findings": 1,
   "findings": [
@@ -794,34 +783,17 @@ EnvGuard auto-detects and runs seamlessly inside **GitLab CI**, **CircleCI**, **
 pytest -v
 ```
 
-```text
-tests/test_advanced_config.py::test_valid_advanced_detection_config PASSED
-tests/test_baseline.py::test_baseline_creation_and_no_plaintext_secrets PASSED
-tests/test_ci.py::test_ci_detection_github_actions PASSED
-tests/test_ci.py::test_ci_detection_gitlab_ci PASSED
-tests/test_ci.py::test_ci_detection_azure_pipelines PASSED
-tests/test_ci.py::test_ci_detection_local PASSED
-tests/test_ci_output.py::test_ci_command_clean_exit_code PASSED
-tests/test_ci_output.py::test_ci_command_detects_secrets_and_blocks PASSED
-tests/test_git_utils.py::test_is_git_repository PASSED
-tests/test_git_utils.py::test_get_changed_files_between_commits PASSED
-tests/test_github_actions.py::test_write_github_annotations PASSED
-tests/test_github_actions.py::test_write_github_job_summary PASSED
-tests/test_sarif.py::test_sarif_generation_schema_compliance PASSED
-tests/test_sarif.py::test_sarif_severity_mappings PASSED
-tests/test_scanner.py::test_scan_files_explicit_list PASSED
-tests/test_v060_features.py::test_multi_repo_scanning_clean PASSED
-tests/test_v066_fixes.py::test_bug_a_locked_disabled_rules_not_unknown_key PASSED
-tests/test_v070_pre_push.py::test_cli_pre_push_blocking_secret PASSED
-tests/test_v070_ide_json.py::test_cli_scan_ide_format PASSED
-tests/test_v070_watch.py::test_watcher_detects_modification_with_debounce PASSED
-tests/test_v090_lint_config.py::test_lint_config_clean PASSED
-tests/test_v090_compliance.py::test_map_findings_to_compliance PASSED
-tests/test_v090_trend.py::test_trend_with_baseline PASSED
-tests/test_v090_audit.py::test_html_report_zero_plain_secrets PASSED
+Run the full suite from the EnvGuard repository root before relying on any reported pass count — a project this size is worth verifying directly rather than trusting a number in documentation.
 
-============================= 227 passed in 29.43s =============================
-```
+---
+
+## Project History
+
+EnvGuard began as a focused, 5-hour MVP: a CLI that scanned staged files for obvious secret patterns before a commit. It grew through a deliberate cycle repeated across every major release — ship a feature, verify it live against real projects (not just the test suite), fix what's actually broken, and only then move to the next milestone.
+
+That process has included two genuine security findings worth being upfront about: an arbitrary file-write vulnerability via Git reference argument injection, and a CI blocking bypass caused by unvalidated configuration values — both found through direct live testing rather than automated scanning, and both fixed and independently re-verified before the next release shipped. The full version-by-version history is in the [Roadmap](#roadmap) below.
+
+By v1.0.0, EnvGuard covers the full lifecycle: catch secrets before they're committed or pushed, enforce policy across teams and multiple repositories, integrate into CI/CD and editors, safely remediate what's found, and report on compliance posture over time — all without a network call.
 
 ---
 
@@ -837,20 +809,29 @@ tests/test_v090_audit.py::test_html_report_zero_plain_secrets PASSED
 | v0.4.0 | Advanced Detection Engine (entropy, JWT validation, expanded cloud provider rules) | Complete |
 | v0.4.2 | Stability & production diagnostics patch | Complete |
 | v0.5.0 | CI/CD & GitHub Ecosystem (CI detection, changed-file diff, SARIF 2.1.0, GitHub annotations & step summaries) | Complete |
-| v0.5.3 | Bug Fix Release (Baseline Consistency, Independent Entropy Rule, Output Confirmation) | Complete |
-| v0.5.4 | Security & Consistency Patch (Ref Injection Prevention, block_on Validation, Status advanced_detection, Specificity Fix, Unknown Keys Warning) | Complete |
-| v0.5.5 | Micro Patch Update (Rich Console Stderr Fix, Status Command Config Warnings Surface) | Complete |
-| v0.6.0 | Team & Multi-Repo Workflows (Organization Security Floor, Multi-Repo Scanning, Blocker Attribution) | Complete |
-| v0.6.6 | Patch Update (Organization Policy locked_disabled_rules Schema Fix, Multi-Repo Scan TypeError Fix) | Complete |
-| v0.7.0 | Developer Workflow Integration (Git Pre-Push Hook, Filesystem Watch Mode, IDE Diagnostic JSON) | Complete |
-| v0.7.5 | Full Rich Terminal UI Overhaul (Theme System, Progress Bars, Watch Live Dashboard, Syntax Highlighting) | Complete |
-| v0.8.0 | Automated Remediation & Secrets Manager Integration (`envguard fix`, AST Verification, Offline Secrets Manager) | Complete |
-| v0.9.0 | Compliance & Audit Reporting (`envguard audit`, `lint-config`, SOC 2/ISO 27001 Mapping, Trends) | Complete |
-| v0.9.8 | Precision & Scanner Quality Fixes (Safe Code Precision, Baseline Ignore, Doctor Floor >= 3.10, Positional Paths) | Complete |
-| v0.9.10 | Audit Bug Fixes (High-Entropy FP Elimination, Config Schema Validation, Truthful Baseline Debt Metrics) | Complete |
-| v0.9.11 | Generic High-Entropy Detection Redesign (Context-First Pipeline, Multi-Signal Scoring) | Complete |
-| **v1.0.0** | **Production Release (Stable CLI, Safe Remediation, SOC 2/ISO 27001, Stranger-Ready)** | **Current Release ✅** |
+| v0.5.3 | Bug fix release (baseline consistency, independent entropy rule, output confirmation) | Complete |
+| v0.5.4 | Security & consistency patch (ref injection prevention, block_on validation, specificity fix) | Complete |
+| v0.5.5 | Micro patch (Rich console stderr fix, status command config warnings surfaced) | Complete |
+| v0.6.0 | Team & Multi-Repo Workflows (organization security floor, multi-repo scanning, blocker attribution) | Complete |
+| v0.6.6 | Patch (organization policy schema fix, multi-repo scan crash fix) | Complete |
+| v0.7.0 | Developer Workflow Integration (Git pre-push hook, filesystem watch mode, IDE diagnostic JSON) | Complete |
+| v0.7.5 | Full Rich Terminal UI Overhaul (theme system, progress bars, watch live dashboard, syntax highlighting) | Complete |
+| v0.8.0 | Automated Remediation & Secrets Manager Integration (`envguard fix`, AST verification, offline secrets manager recognition) | Complete |
+| v0.8.7 | Remediation safety fixes (BOM handling, automatic `.gitignore` exclusion, `.env` scan-scope fix) | Complete |
+| v0.9.0 | Compliance & Audit Reporting (`envguard audit`, `lint-config`, SOC 2/ISO 27001 mapping, trends) | Complete |
+| v0.9.8–v0.9.11 | Precision & audit accuracy fixes (entropy false-positive reduction, config schema alignment, truthful baseline debt metrics) | Complete |
+| **v1.0.0** | **Stable Production Release** | **Current Release** |
 
+---
+
+## Contributing
+
+EnvGuard is now open for outside contribution. Before opening a pull request:
+
+- Read `CONTRIBUTING.md` for the development setup, testing expectations, and a map of the codebase.
+- Every change must include regression tests and pass the full existing suite — no exceptions for "small" fixes, since several of this project's most serious bugs were exactly that.
+- Changes touching subprocess calls, configuration validation, or path handling get extra scrutiny — see `CONTRIBUTING.md` for the specific patterns to follow, based on real vulnerabilities found and fixed in this project's history.
+- Use the issue templates for bug reports (especially false positive/negative detection reports) and feature requests.
 
 ---
 
