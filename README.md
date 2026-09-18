@@ -166,6 +166,10 @@ envguard scan --format sarif --output results.sarif
 envguard scan --verbose
 ```
 
+<p align="center">
+  <img src="docs/images/scan_progress.png" alt="EnvGuard Real-Time Scan Progress Bar" width="850" />
+</p>
+
 #### Scan Complete Output
 ```text
 ┌───────────── Scan Complete ─────────────┐
@@ -452,6 +456,10 @@ Supported comment formats: `#` (Python, Bash, YAML), `//` (JS, TS, Go, Java, C++
 ## Interactive Console
 
 Run `envguard menu` (or simply `envguard`) for the interactive console, or `envguard ui` to open it in a dedicated window:
+
+<p align="center">
+  <img src="docs/images/interactive_menu.png" alt="EnvGuard Interactive Security Console" width="850" />
+</p>
 
 ```text
 ┌─────────────────────────────────────────────────────────┐
